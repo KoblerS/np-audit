@@ -2,7 +2,7 @@
 
 const assert  = require('assert');
 const zlib    = require('zlib');
-const { parseTarGz, extractFile, getPackageJson } = require('../../src/tarball');
+const { parseTarGz, extractFile, getPackageJson } = require('../../src/utils/tarball');
 
 // ─── Helpers to build minimal tar.gz in-memory ───────────────────────────────
 

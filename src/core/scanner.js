@@ -2,11 +2,11 @@
 
 const fs      = require('fs');
 const path    = require('path');
-const { parseLockfile }                = require('./lockfile');
-const { fetchTarball, buildTarballUrl, verifyIntegrity } = require('./fetcher');
-const { parseTarGz, extractFile, getPackageJson }        = require('./tarball');
+const { parseLockfile }                = require('../utils/lockfile');
+const { fetchTarball, buildTarballUrl, verifyIntegrity } = require('../utils/fetcher');
+const { parseTarGz, extractFile, getPackageJson }        = require('../utils/tarball');
 const { detectObfuscation }            = require('./detector');
-const output                           = require('./output');
+const output                           = require('../utils/output');
 
 /**
  * Main scan orchestrator.
@@ -285,7 +285,7 @@ async function resolveFromPackageJson(cwd, config, noDev) {
   }
 
   const packages = [];
-  const { fetchJSON } = require('./fetcher');
+  const { fetchJSON } = require('../utils/fetcher');
 
   for (const [name, range] of Object.entries(deps)) {
     const version = extractSemver(range);
@@ -327,7 +327,7 @@ async function resolveSinglePackage(packageSpec, config) {
     ? packageSpec.split('@')
     : [packageSpec, 'latest'];
 
-  const { fetchJSON } = require('./fetcher');
+  const { fetchJSON } = require('../utils/fetcher');
   let meta;
   try {
     meta = await fetchJSON(`${config.registry}/${encodeURIComponent(name)}`, { timeout: config.timeout });

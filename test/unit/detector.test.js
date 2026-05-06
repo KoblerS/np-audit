@@ -14,7 +14,7 @@ const {
   checkHexArray,
   checkProcessEnv,
   checkNetworkCalls,
-} = require('../../src/detector');
+} = require('../../src/core/detector');
 
 const CONFIG = { blockScore: 7, warnScore: 4 };
 

@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs     = require('fs');
 const path   = require('path');
 const os     = require('os');
-const { loadConfig, setGlobalConfig, DEFAULT_CONFIG, getGlobalConfigPath } = require('../../src/config');
+const { loadConfig, setGlobalConfig, DEFAULT_CONFIG, getGlobalConfigPath } = require('../../src/utils/config');
 
 function withTmpDir(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'npa-config-test-'));

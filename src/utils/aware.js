@@ -143,11 +143,16 @@ async function runAware(opts) {
 
 /**
  * Spawn npm install/ci and return the exit code.
+ * Sets NPA_RUNNING=1 to prevent recursive hooks when npm is aliased to npa.
  */
 function runNpm(command, args, cwd) {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const npmArgs = command === 'ci' ? ['ci', ...args] : ['install', ...args];
-  const result = spawnSync(npmCmd, npmArgs, { stdio: 'inherit', cwd });
+  const result = spawnSync(npmCmd, npmArgs, {
+    stdio: 'inherit',
+    cwd,
+    env: { ...process.env, NPA_RUNNING: '1' },
+  });
   return result.status || 0;
 }
 

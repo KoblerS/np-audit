@@ -1,3 +1,10 @@
+![np-audit](docs/title-image.png)
+
+[![npm version](https://img.shields.io/npm/v/np-audit.svg)](https://www.npmjs.com/package/np-audit)
+[![npm downloads](https://img.shields.io/npm/dm/np-audit.svg)](https://www.npmjs.com/package/np-audit)
+[![GitHub license](https://img.shields.io/github/license/KoblerS/np-audit.svg)](https://github.com/KoblerS/np-audit/blob/main/LICENSE)
+[![CI](https://github.com/KoblerS/np-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/KoblerS/np-audit/actions/workflows/ci.yml)
+
 # np-audit — npm package auditor
 
 Statically detect obfuscated code in npm `preinstall`/`postinstall` scripts **before** they run. Drop-in replacement for `npm install` and `npm ci`.
@@ -53,13 +60,16 @@ Real-world examples include:
 
 ## Install
 
-```bash
-# Global install (recommended for daily use)
-npm install -g np-audit
+**Global install (recommended):**
 
-# Or use directly with npx (no install needed)
+```bash
+npm install -g np-audit
+```
+
+**Or use directly with npx:**
+
+```bash
 npx np-audit scan
-npx np-audit install
 ```
 
 After global install, use the `npa` command:
@@ -76,11 +86,16 @@ npa --version
 
 | Command | Alias | Description |
 |---|---|---|
-| `npa install [package]` | `npa i [package]` | Audit then run `npm install` |
+| `npa install [package]` | `npa i` | Audit then run `npm install` |
 | `npa ci` | — | Audit then run `npm ci` |
 | `npa scan` | `npa s` | Scan only, no install |
 | `npa config get` | `npa c get` | Show current configuration |
-| `npa config set <key> <value>` | `npa c set <key> <value>` | Update a config value |
+| `npa config set <key> <value>` | `npa c set` | Update a config value |
+| `npa alias` | — | Print shell hook for auto-scanning |
+| `npa alias --install` | — | Install hook to shell profile |
+| `npa alias --uninstall` | — | Remove hook from shell profile |
+
+Use `npa <command> -h` for detailed help on any command.
 
 ### Flags
 
@@ -158,6 +173,42 @@ npa config set skipScopes '["@types","@babel"]'
 ```
 
 Config is stored in `~/.npmauditor.json` (global) and can be overridden per project with `.npmauditor.json` in your project root.
+
+### Shell Hook (npm alias)
+
+Automatically run `npa scan` before every `npm install` or `npm ci`:
+
+```bash
+# Install the hook to your shell profile (~/.zshrc or ~/.bashrc)
+npa alias --install
+
+# Reload your shell
+source ~/.zshrc  # or ~/.bashrc
+```
+
+Now when you run `npm install` or `npm ci`, npa will scan first:
+
+```bash
+$ npm install lodash
+[npa] Scanning dependencies before npm install...
+✔ No packages with install scripts found.
+[npa] Scan passed. Running npm install...
+```
+
+If issues are found, the install is blocked:
+
+```bash
+$ npm install evil-pkg
+[npa] Scanning dependencies before npm install...
+✗ evil-pkg@1.0.0 BLOCK (score: 9)
+[npa] Scan found issues. Run 'npa install --aware' for interactive mode.
+```
+
+To remove the hook:
+
+```bash
+npa alias --uninstall
+```
 
 #### All config keys
 

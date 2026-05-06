@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs     = require('fs');
 const path   = require('path');
 const os     = require('os');
-const { parseLockfile, nameFromKey } = require('../../src/lockfile');
+const { parseLockfile, nameFromKey } = require('../../src/utils/lockfile');
 
 // ─── nameFromKey ─────────────────────────────────────────────────────────────
 assert.strictEqual(nameFromKey('node_modules/express'),         'express',        'simple package');
