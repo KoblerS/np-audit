@@ -3,8 +3,8 @@
   "version": "0.0.2-beta",
   "description": "Static obfuscation detector for npm lifecycle scripts — supply chain attack prevention",
   "bin": {
-    "npa": "./bin/npa.js",
-    "np-audit": "./bin/npa.js"
+    "npa": "bin/npa.js",
+    "np-audit": "bin/npa.js"
   },
   "main": "./src/cli.js",
   "files": [
