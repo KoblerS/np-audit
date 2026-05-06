@@ -40,8 +40,14 @@ jobs:
           VERSION="${{ github.event.release.tag_name }}"
           VERSION="${VERSION#v}"
           npm version "$VERSION" --no-git-tag-version
+          # Determine dist-tag: pre-release versions (x.y.z-*) get "beta", stable get "latest"
+          if [[ "$VERSION" == *"-"* ]]; then
+            echo "PUBLISH_TAG=beta" >> "$GITHUB_ENV"
+          else
+            echo "PUBLISH_TAG=latest" >> "$GITHUB_ENV"
+          fi
 
       - name: Publish
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag "$PUBLISH_TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
