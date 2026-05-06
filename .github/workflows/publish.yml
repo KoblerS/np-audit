@@ -52,3 +52,5 @@ jobs:
 
       - name: Publish
         run: npm publish --provenance --access public --tag "$PUBLISH_TAG"
+        env:
+          NODE_AUTH_TOKEN: ""
