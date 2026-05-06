@@ -243,6 +243,17 @@ function verdictFromScore(score, config) {
 }
 
 /**
+ * Extract the first clean X.Y.Z (or X.Y or X) semver from a range string.
+ * Returns null if no clean version can be found.
+ * Examples: "^5.1.0" → "5.1.0", "4.22.1 || ^5" → "4.22.1", "2" → "2", "*" → null
+ */
+function extractSemver(range) {
+  const match = range.match(/(\d+\.\d+\.\d+(?:-[\w.]+)?|\d+\.\d+|\d+)(?!\S*-)/);
+  if (match) return match[1];
+  return null;
+}
+
+/**
  * Resolve a single package's dependency tree via the npm registry.
  * @param {string} packageSpec  e.g. "express" or "express@4.18.0"
  * @param {object} config
@@ -275,17 +286,19 @@ async function resolveSinglePackage(packageSpec, config) {
     for (const [depName, range] of Object.entries(deps || {})) {
       if (seen.has(depName)) continue;
       seen.add(depName);
-      // We don't resolve ranges here — just list direct deps; full tree would need more registry calls
+      // Extract the first clean semver from the range (e.g. "4.22.1 || ^5" → "4.22.1", "^5.1.0" → "5.1.0")
+      const exactVersion = extractSemver(range);
+      if (!exactVersion) continue; // skip unresolvable ranges — lockfile scan will cover them
       packages.push({
-        name: depName,
-        version: range.replace(/^[\^~>=<]/, ''),
-        resolved: buildTarballUrl(depName, range.replace(/^[\^~>=<]/, ''), config.registry),
-        integrity: '',
+        name:             depName,
+        version:          exactVersion,
+        resolved:         buildTarballUrl(depName, exactVersion, config.registry),
+        integrity:        '',
         hasInstallScript: false,
-        dev: false,
-        optional: false,
-        inBundle: false,
-        link: false,
+        dev:              false,
+        optional:         false,
+        inBundle:         false,
+        link:             false,
       });
     }
   }
