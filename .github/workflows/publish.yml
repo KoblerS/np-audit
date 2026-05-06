@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write  # Required for OIDC trusted publishing
 
 jobs:
   test:
@@ -27,6 +26,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     environment: Release
+    permissions:
+      contents: read
+      id-token: write  # Required for OIDC trusted publishing
     steps:
       - uses: actions/checkout@v4
 
