@@ -101,7 +101,7 @@ Use `npa <command> -h` for detailed help on any command.
 
 | Flag | Alias | Works with | Description |
 |---|---|---|---|
-| `--aware` | `-a` | `install`, `ci` | Interactive mode — choose which scripts to allow |
+| `--review` | `-r` | `install`, `ci` | Interactive mode — choose which scripts to allow |
 | `--json` | — | `install`, `ci`, `scan` | Machine-readable JSON output |
 | `--no-dev` | — | `install`, `ci`, `scan` | Skip devDependencies |
 | `--verbose` | — | all | Show fetch progress and extra detail |
@@ -133,23 +133,23 @@ npa s --no-dev       # skip devDependencies
 npa s --verbose      # show fetch progress
 ```
 
-### Interactive `--aware` mode
+### Interactive `--review` mode
 
 Review each install script yourself and decide which to allow:
 
 ```bash
-npa i --aware        # or: npa i -a
-npa ci --aware
+npa i --review        # or: npa i -r
+npa ci --review
 ```
 
 ```
-  npa --aware mode
+  npa --review mode
   Use ↑/↓ to navigate, SPACE to toggle, ENTER to confirm, q to quit
 
   Found 3 package(s) with install scripts:
 
      [✓ allow] esbuild@0.24.2       postinstall: post-install.js     OK
-   ▶ [✗ deny ] evil-sdk@1.0.0       postinstall: install.js          BLOCK (score: 9)
+   ▶ [✗ deny ] evil-sdk@1.0.0       postinstall: install.js          DANGER (score: 9)
      [✓ allow] @scope/pkg@2.1.0     postinstall: install.js          WARN (score: 5)
 
   2 allowed  1 denied
@@ -200,8 +200,8 @@ If issues are found, the install is blocked:
 ```bash
 $ npm install evil-pkg
 [npa] Scanning dependencies before npm install...
-✗ evil-pkg@1.0.0 BLOCK (score: 9)
-[npa] Scan found issues. Run 'npa install --aware' for interactive mode.
+✗ evil-pkg@1.0.0 DANGER (score: 9)
+[npa] Scan found issues. Run 'npa install --review' for interactive mode.
 ```
 
 To remove the hook:
@@ -221,6 +221,7 @@ npa alias --uninstall
 | `parallelFetches` | `5` | Concurrent tarball downloads |
 | `skipScopes` | `[]` | `@scope` prefixes to skip entirely |
 | `skipPackages` | `[]` | Specific package names to skip |
+| `silent` | `false` | Suppress output when no issues found |
 
 ---
 
@@ -239,9 +240,9 @@ npa alias --uninstall
 2. **Filter** packages: skip dev deps (`--no-dev`), skipped scopes/packages, packages without install scripts
 3. **Fetch or read** — for packages in `node_modules`: read from disk. For packages not yet installed: download the tarball from the npm registry and parse it in memory (pure Node.js tar.gz reader, no `tar` package)
 4. **Analyze** each `preinstall`/`install`/`postinstall` script file statically — never execute
-5. **Score** findings (0–10 per signal), classify as BLOCK / WARN / OK based on config thresholds
+5. **Score** findings (0–10 per signal), classify as DANGER / WARN / OK based on config thresholds
 6. **Report** results to terminal or `--json`
-7. **Proceed** — run npm normally, or in `--aware` mode let you selectively allow scripts
+7. **Proceed** — run npm normally, or in `--review` mode let you selectively allow scripts
 
 ---
 
