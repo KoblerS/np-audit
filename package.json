@@ -1,0 +1,27 @@
+{
+  "name": "np-audit",
+  "version": "1.0.0",
+  "description": "Static obfuscation detector for npm lifecycle scripts — supply chain attack prevention",
+  "bin": {
+    "npa": "./bin/npa.js",
+    "np-audit": "./bin/npa.js"
+  },
+  "main": "./src/cli.js",
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["npm", "security", "audit", "obfuscation", "supply-chain"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KoblerS/np-audit.git"
+  }
+}

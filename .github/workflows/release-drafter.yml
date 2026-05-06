@@ -1,0 +1,26 @@
+name: Release Drafter
+
+on:
+  push:
+    branches:
+      - main
+  # Also re-run when a PR is merged (closed + merged)
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: read
+
+jobs:
+  update_release_draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: KoblerS/release-drafter@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          generate-release-notes: true
+          version-prefix: 'v'

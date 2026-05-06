@@ -1,4 +1,4 @@
-# npa — npm package auditor
+# np-audit — npm package auditor
 
 Statically detect obfuscated code in npm `preinstall`/`postinstall` scripts **before** they run. Drop-in replacement for `npm install` and `npm ci`.
 
@@ -55,11 +55,11 @@ Real-world examples include:
 
 ```bash
 # Global install (recommended for daily use)
-npm install -g npm-auditor
+npm install -g np-audit
 
 # Or use directly with npx (no install needed)
-npx npm-auditor scan
-npx npm-auditor install
+npx np-audit scan
+npx np-audit install
 ```
 
 After global install, use the `npa` command:
@@ -72,14 +72,35 @@ npa --version
 
 ## Usage
 
+### Commands
+
+| Command | Alias | Description |
+|---|---|---|
+| `npa install [package]` | `npa i [package]` | Audit then run `npm install` |
+| `npa ci` | — | Audit then run `npm ci` |
+| `npa scan` | `npa s` | Scan only, no install |
+| `npa config get` | `npa c get` | Show current configuration |
+| `npa config set <key> <value>` | `npa c set <key> <value>` | Update a config value |
+
+### Flags
+
+| Flag | Alias | Works with | Description |
+|---|---|---|---|
+| `--aware` | `-a` | `install`, `ci` | Interactive mode — choose which scripts to allow |
+| `--json` | — | `install`, `ci`, `scan` | Machine-readable JSON output |
+| `--no-dev` | — | `install`, `ci`, `scan` | Skip devDependencies |
+| `--verbose` | — | all | Show fetch progress and extra detail |
+| `--version` | — | — | Print version and exit |
+| `--help` | `-h` | — | Print help and exit |
+
 ### Drop-in replacement for `npm install`
 
 ```bash
 # Audit all dependencies, then install if clean
-npa install
+npa install          # or: npa i
 
 # Audit a specific package before adding it
-npa install express
+npa i express
 ```
 
 ### Drop-in replacement for `npm ci`
@@ -91,10 +112,10 @@ npa ci
 ### Scan only (no install)
 
 ```bash
-npa scan
-npa scan --json        # machine-readable output
-npa scan --no-dev      # skip devDependencies
-npa scan --verbose     # show fetch progress
+npa scan             # or: npa s
+npa s --json         # machine-readable output
+npa s --no-dev       # skip devDependencies
+npa s --verbose      # show fetch progress
 ```
 
 ### Interactive `--aware` mode
@@ -102,7 +123,7 @@ npa scan --verbose     # show fetch progress
 Review each install script yourself and decide which to allow:
 
 ```bash
-npa install --aware
+npa i --aware        # or: npa i -a
 npa ci --aware
 ```
 
@@ -176,8 +197,8 @@ Config is stored in `~/.npmauditor.json` (global) and can be overridden per proj
 ## Development
 
 ```bash
-git clone https://github.com/KoblerS/npm-auditor.git
-cd npm-auditor
+git clone https://github.com/KoblerS/np-audit.git
+cd np-audit
 npm test          # run all unit + E2E tests
 npm link          # install npa globally from source
 ```
