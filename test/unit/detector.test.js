@@ -104,4 +104,20 @@ const warnCode = `
 const warnResult = detectObfuscation(warnCode, CONFIG);
 assert.ok(warnResult.verdict === 'WARN' || warnResult.verdict === 'OK', 'warn code is not blocked');
 
+// ─── Large file handling ─────────────────────────────────────────────────────
+const fs = require('fs');
+const path = require('path');
+const largeFilePath = path.join(__dirname, '../fixtures/obfuscated-large.js');
+if (fs.existsSync(largeFilePath)) {
+  const largeCode = fs.readFileSync(largeFilePath, 'utf8');
+  assert.ok(largeCode.length > 1000000, 'large file is >1MB');
+  const start = Date.now();
+  const largeResult = detectObfuscation(largeCode, { blockScore: 50, warnScore: 20 });
+  const elapsed = Date.now() - start;
+  assert.ok(elapsed < 5000, `large file processed in <5s (took ${elapsed}ms)`);
+  assert.strictEqual(largeResult.verdict, 'BLOCK', 'large obfuscated file is BLOCK');
+  assert.ok(largeResult.score >= 50, `large file score >= 50 (got ${largeResult.score})`);
+  console.log(`  large file test: ${(largeCode.length / 1024 / 1024).toFixed(1)}MB processed in ${elapsed}ms, score=${largeResult.score}`);
+}
+
 console.log('  detector.test.js: all tests passed');

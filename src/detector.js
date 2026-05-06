@@ -1,5 +1,9 @@
 'use strict';
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const MAX_CODE_SIZE = 500000; // 500KB - chunk larger files
+
 // ─── Individual detection checks ─────────────────────────────────────────────
 
 /**
@@ -22,31 +26,57 @@ function checkEval(code) {
 
 /**
  * Detect obfuscator.io signature: _0x variable naming.
+ * Score scales with density of obfuscation.
  * @param {string} code
  * @returns {Finding|null}
  */
 function checkObfuscatorIo(code) {
   const matches = code.match(/_0x[0-9a-fA-F]+/g) || [];
   if (matches.length < 3) return null;
-  return { name: 'obfuscator.io', score: 9, detail: `${matches.length} _0x identifiers found` };
+  // Scale score: 3-10 = 9, 11-50 = 15, 51-200 = 30, 201-1000 = 50, 1000+ = 80
+  let score = 9;
+  if (matches.length > 1000) score = 80;
+  else if (matches.length > 200) score = 50;
+  else if (matches.length > 50) score = 30;
+  else if (matches.length > 10) score = 15;
+  return { name: 'obfuscator.io', score, detail: `${matches.length} _0x identifiers found` };
 }
 
 /**
  * Detect high-entropy strings (likely encoded/encrypted payloads).
+ * Uses indexOf-based extraction to avoid regex stack overflow on large files.
  * @param {string} code
  * @returns {Finding|null}
  */
 function checkHighEntropy(code) {
-  // Extract string literals (single, double, template)
-  const stringRe = /(?:"([^"\\]|\\.){50,}"|'([^'\\]|\\.){50,}'|`([^`\\]|\\.){50,}`)/g;
-  let match;
   let maxEntropy = 0;
   let worst = '';
-  while ((match = stringRe.exec(code)) !== null) {
-    const s = match[0].slice(1, -1);
-    const e = shannonEntropy(s);
-    if (e > maxEntropy) { maxEntropy = e; worst = s.slice(0, 40); }
+  const minLen = 50;
+
+  // Simple string extraction without complex regex
+  for (const quote of ['"', "'", '`']) {
+    let pos = 0;
+    while (pos < code.length) {
+      const start = code.indexOf(quote, pos);
+      if (start === -1) break;
+
+      // Find end quote (skip escaped quotes)
+      let end = start + 1;
+      while (end < code.length) {
+        if (code[end] === '\\') { end += 2; continue; }
+        if (code[end] === quote) break;
+        end++;
+      }
+
+      if (end < code.length && end - start - 1 >= minLen) {
+        const s = code.slice(start + 1, end);
+        const e = shannonEntropy(s);
+        if (e > maxEntropy) { maxEntropy = e; worst = s.slice(0, 40); }
+      }
+      pos = end + 1;
+    }
   }
+
   if (maxEntropy < 4.5) return null;
   return {
     name: 'high-entropy-string',
@@ -57,13 +87,19 @@ function checkHighEntropy(code) {
 
 /**
  * Detect dense hex escape sequences (\x41).
+ * Score scales with volume.
  * @param {string} code
  * @returns {Finding|null}
  */
 function checkHexEscapes(code) {
   const hexMatches = (code.match(/\\x[0-9a-fA-F]{2}/g) || []).length;
   if (hexMatches < 10) return null;
-  return { name: 'hex-escape-density', score: 5, detail: `${hexMatches} \\xNN hex escapes found` };
+  // Scale: 10-50 = 5, 51-200 = 15, 201-1000 = 30, 1000+ = 50
+  let score = 5;
+  if (hexMatches > 1000) score = 50;
+  else if (hexMatches > 200) score = 30;
+  else if (hexMatches > 50) score = 15;
+  return { name: 'hex-escape-density', score, detail: `${hexMatches} \\xNN hex escapes found` };
 }
 
 /**
@@ -119,6 +155,7 @@ function checkChildProcess(code) {
 
 /**
  * Detect large hex literal arrays (common in minified obfuscated code).
+ * Score scales with volume.
  * @param {string} code
  * @returns {Finding|null}
  */
@@ -126,7 +163,12 @@ function checkHexArray(code) {
   // Count 0x1234-style literals
   const hexLiterals = (code.match(/\b0x[0-9a-fA-F]+\b/g) || []).length;
   if (hexLiterals < 20) return null;
-  return { name: 'hex-array', score: 7, detail: `${hexLiterals} hex literal values found` };
+  // Scale: 20-100 = 7, 101-500 = 20, 501-2000 = 40, 2000+ = 60
+  let score = 7;
+  if (hexLiterals > 2000) score = 60;
+  else if (hexLiterals > 500) score = 40;
+  else if (hexLiterals > 100) score = 20;
+  return { name: 'hex-array', score, detail: `${hexLiterals} hex literal values found` };
 }
 
 /**
@@ -190,22 +232,45 @@ const CHECKS = [
 
 /**
  * Run all checks against a code string.
+ * For large files, analyzes multiple chunks and aggregates results.
  * @param {string} code
  * @param {object} config  { blockScore, warnScore }
  * @returns {{ score: number, findings: Finding[], verdict: 'BLOCK'|'WARN'|'OK' }}
  */
-function detectObfuscation(code, config = { blockScore: 7, warnScore: 4 }) {
+function detectObfuscation(code, config = { blockScore: 50, warnScore: 20 }) {
   if (!code || typeof code !== 'string') {
     return { score: 0, findings: [], verdict: 'OK' };
   }
 
-  const findings = [];
-  for (const check of CHECKS) {
-    const result = check(code);
-    if (result) findings.push(result);
+  // For large files, analyze chunks and take worst results
+  const chunks = [];
+  if (code.length > MAX_CODE_SIZE) {
+    // Analyze start, middle, and end chunks
+    chunks.push(code.slice(0, MAX_CODE_SIZE));
+    const mid = Math.floor(code.length / 2) - Math.floor(MAX_CODE_SIZE / 2);
+    chunks.push(code.slice(mid, mid + MAX_CODE_SIZE));
+    chunks.push(code.slice(-MAX_CODE_SIZE));
+  } else {
+    chunks.push(code);
   }
 
-  // Score = highest individual finding score (weighted max — avoid double-penalizing)
+  const allFindings = new Map(); // Dedupe by name, keep highest score
+
+  for (const chunk of chunks) {
+    for (const check of CHECKS) {
+      const result = check(chunk);
+      if (result) {
+        const existing = allFindings.get(result.name);
+        if (!existing || result.score > existing.score) {
+          allFindings.set(result.name, result);
+        }
+      }
+    }
+  }
+
+  const findings = Array.from(allFindings.values());
+
+  // Score = highest individual finding score
   const score = findings.length > 0
     ? Math.max(...findings.map(f => f.score))
     : 0;
