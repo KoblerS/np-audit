@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # Required for npm provenance (--provenance flag)
+  id-token: write  # Required for OIDC trusted publishing
 
 jobs:
   test:
@@ -34,13 +34,13 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      # Sync the package version with the GitHub release tag (strips leading "v")
+      # Sync package.json version with the GitHub release tag (strips leading "v")
       - name: Set version from release tag
         run: |
           VERSION="${{ github.event.release.tag_name }}"
           VERSION="${VERSION#v}"
           npm version "$VERSION" --no-git-tag-version
-          # Determine dist-tag: pre-release versions (x.y.z-*) get "beta", stable get "latest"
+          # Pre-release versions (x.y.z-*) publish under "beta", stable under "latest"
           if [[ "$VERSION" == *"-"* ]]; then
             echo "PUBLISH_TAG=beta" >> "$GITHUB_ENV"
           else
@@ -49,5 +49,3 @@ jobs:
 
       - name: Publish
         run: npm publish --provenance --access public --tag "$PUBLISH_TAG"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
