@@ -1,0 +1,17 @@
+{
+  "name": "np-audit-test-clean",
+  "version": "1.0.0",
+  "description": "Test fixture for np-audit — clean postinstall with no obfuscation. Should pass through without warnings.",
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "keywords": ["np-audit", "test", "fixture"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KoblerS/np-audit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KoblerS/np-audit/issues"
+  }
+}

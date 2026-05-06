@@ -1,0 +1,17 @@
+{
+  "name": "np-audit-test-obfuscated",
+  "version": "1.0.0",
+  "description": "Test fixture for np-audit — simulates a supply chain attack with obfuscated postinstall. Completely harmless.",
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "keywords": ["np-audit", "test", "fixture"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KoblerS/np-audit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KoblerS/np-audit/issues"
+  }
+}
