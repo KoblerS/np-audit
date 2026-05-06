@@ -35,10 +35,6 @@ const HELP = `
     parallelFetches  Concurrent downloads (default: ${DEFAULT_CONFIG.parallelFetches})
     skipScopes       Array of @scopes to skip
     skipPackages     Array of package names to skip
-
-  Install:
-    npm install -g np-audit
-    npx np-audit scan
 `;
 
 function parseArgs(argv) {
@@ -60,7 +56,8 @@ function parseArgs(argv) {
       case '--json':     flags.json    = true; break;
       case '--no-dev':   flags.noDev   = true; break;
       case '--verbose':  flags.verbose = true; break;
-      case '--version':  flags.version = true; break;
+      case '--version':
+      case '-v':         flags.version = true; break;
       case '--help':
       case '-h':         flags.help    = true; break;
       default:

@@ -26,9 +26,15 @@ async function scan(opts) {
   if (singlePackage) {
     packages = await resolveSinglePackage(singlePackage, config);
   } else {
-    const parsed = parseLockfile(cwd);
-    packages = parsed.packages;
-    lockfileVersion = parsed.lockfileVersion;
+    const lockPath = path.join(cwd, 'package-lock.json');
+    if (fs.existsSync(lockPath)) {
+      const parsed = parseLockfile(cwd);
+      packages = parsed.packages;
+      lockfileVersion = parsed.lockfileVersion;
+    } else {
+      // No lockfile — resolve from package.json
+      packages = await resolveFromPackageJson(cwd, config, noDev);
+    }
   }
 
   // Apply skip filters
@@ -251,6 +257,63 @@ function extractSemver(range) {
   const match = range.match(/(\d+\.\d+\.\d+(?:-[\w.]+)?|\d+\.\d+|\d+)(?!\S*-)/);
   if (match) return match[1];
   return null;
+}
+
+/**
+ * Resolve dependencies from package.json when no lockfile exists.
+ * @param {string} cwd
+ * @param {object} config
+ * @param {boolean} noDev
+ * @returns {Promise<PackageDescriptor[]>}
+ */
+async function resolveFromPackageJson(cwd, config, noDev) {
+  const pkgPath = path.join(cwd, 'package.json');
+  if (!fs.existsSync(pkgPath)) {
+    throw new Error(`package.json not found in ${cwd}`);
+  }
+
+  let pkgJson;
+  try {
+    pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  } catch (err) {
+    throw new Error(`Failed to parse package.json: ${err.message}`);
+  }
+
+  const deps = { ...pkgJson.dependencies };
+  if (!noDev && pkgJson.devDependencies) {
+    Object.assign(deps, pkgJson.devDependencies);
+  }
+
+  const packages = [];
+  const { fetchJSON } = require('./fetcher');
+
+  for (const [name, range] of Object.entries(deps)) {
+    const version = extractSemver(range);
+    if (!version) continue;
+
+    try {
+      const meta = await fetchJSON(`${config.registry}/${encodeURIComponent(name)}`, { timeout: config.timeout });
+      const versionData = meta.versions && meta.versions[version];
+      if (!versionData) continue;
+
+      packages.push({
+        name,
+        version,
+        resolved: versionData.dist && versionData.dist.tarball,
+        integrity: versionData.dist && versionData.dist.integrity || '',
+        hasInstallScript: !!(versionData.scripts &&
+          (versionData.scripts.preinstall || versionData.scripts.postinstall || versionData.scripts.install)),
+        dev: !!(pkgJson.devDependencies && pkgJson.devDependencies[name]),
+        optional: false,
+        inBundle: false,
+        link: false,
+      });
+    } catch {
+      // Skip packages we can't fetch metadata for
+    }
+  }
+
+  return packages;
 }
 
 /**
