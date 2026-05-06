@@ -49,16 +49,26 @@ function log(msg) {
 }
 
 function verdictBadge(verdict) {
-  if (NO_COLOR) return `[${verdict}]`;
-  if (verdict === 'BLOCK') return `${BG_RED}${BOLD} BLOCK ${RESET}`;
+  if (NO_COLOR) return verdict === 'BLOCK' ? '[DANGER]' : `[${verdict}]`;
+  if (verdict === 'BLOCK') return `${BG_RED}${WHITE}${BOLD} DANGER ${RESET}`;
   if (verdict === 'WARN')  return `${BG_YELLOW}\x1b[30m WARN  ${RESET}`;
   return `${GREEN} OK    ${RESET}`;
 }
 
-function printScanHeader() {
-  log('');
-  log(bold(cyan('npa') + ' — npm package auditor'));
-  log(dim('Static obfuscation detection for install scripts'));
+const ASCII_LOGO = `
+
+  ███╗   ██╗██████╗  █████╗
+  ████╗  ██║██╔══██╗██╔══██╗
+  ██╔██╗ ██║██████╔╝███████║
+  ██║╚██╗██║██╔═══╝ ██╔══██║
+  ██║ ╚████║██║     ██║  ██║
+  ╚═╝  ╚═══╝╚═╝     ╚═╝  ╚═╝
+`;
+
+function printScanHeader(silent = false) {
+  if (silent) return;
+  log(blue(ASCII_LOGO));
+  log(dim('  npm package auditor — static obfuscation detection'));
   log(dim('─'.repeat(60)));
   log('');
 }
@@ -77,10 +87,15 @@ function printSummary(results) {
   const blocked = results.filter(r => r.verdict === 'BLOCK').length;
   const warned  = results.filter(r => r.verdict === 'WARN').length;
   const ok      = results.filter(r => r.verdict === 'OK').length;
+  const skipped = results.skippedCount || 0;
 
   log('');
   log(dim('─'.repeat(60)));
-  log(`  ${green(String(ok))} clean   ${yellow(String(warned))} warnings   ${red(String(blocked))} blocked`);
+  let summary = `  ${green(String(ok))} clean   ${yellow(String(warned))} warnings   ${red(String(blocked))} blocked`;
+  if (skipped > 0) {
+    summary += `   ${dim(String(skipped) + ' skipped (no install scripts)')}`;
+  }
+  log(summary);
   log('');
 }
 

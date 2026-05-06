@@ -15,16 +15,33 @@ const output                           = require('../utils/output');
  * @param {object}  opts.config
  * @param {boolean} opts.noDev
  * @param {boolean} opts.verbose
- * @param {string|null} opts.singlePackage  name for single-package mode
+ * @param {string|null} opts.singlePackage  name for single-package mode (deprecated, use packages)
+ * @param {string[]|null} opts.packages  package names to scan
  * @returns {Promise<ScanResult[]>}
  */
 async function scan(opts) {
-  const { cwd, config, noDev, verbose, singlePackage } = opts;
+  const { cwd, config, noDev, verbose, singlePackage, packages: packageList } = opts;
 
   let packages;
   let lockfileVersion = 1;
-  if (singlePackage) {
-    packages = await resolveSinglePackage(singlePackage, config);
+  let explicitPackageNames = new Set();
+
+  // Support both single package (legacy) and multiple packages
+  const targetPackages = packageList || (singlePackage ? [singlePackage] : null);
+
+  if (targetPackages && targetPackages.length > 0) {
+    // Scan specific packages from registry
+    const allPackages = [];
+    for (const pkg of targetPackages) {
+      const resolved = await resolveSinglePackage(pkg, config);
+      // Mark the first package (the explicitly requested one) as explicit
+      if (resolved.length > 0) {
+        const pkgName = pkg.includes('@') && !pkg.startsWith('@') ? pkg.split('@')[0] : pkg;
+        explicitPackageNames.add(pkgName);
+      }
+      allPackages.push(...resolved);
+    }
+    packages = allPackages;
   } else {
     const lockPath = path.join(cwd, 'package-lock.json');
     if (fs.existsSync(lockPath)) {
@@ -37,6 +54,9 @@ async function scan(opts) {
     }
   }
 
+  // Track packages without install scripts (for skipped count)
+  let skippedCount = 0;
+
   // Apply skip filters
   packages = packages.filter(pkg => {
     if (noDev && pkg.dev) return false;
@@ -46,6 +66,14 @@ async function scan(opts) {
       for (const scope of config.skipScopes) {
         if (pkg.name.startsWith(scope + '/') || pkg.name === scope) return false;
       }
+    }
+    // For explicit packages, always include them but track if they have no scripts
+    if (explicitPackageNames.has(pkg.name)) {
+      if (!pkg.hasInstallScript) {
+        skippedCount++;
+        return false;
+      }
+      return true;
     }
     // v2/v3 lockfiles reliably report hasInstallScript — skip definitive negatives
     if (lockfileVersion >= 2 && pkg.hasInstallScript === false) return false;
@@ -59,7 +87,13 @@ async function scan(opts) {
     return scanPackage(pkg, cwd, config, verbose);
   });
 
-  return results.filter(Boolean);
+  const scanned = results.filter(Boolean);
+  // Add packages that returned null from scanPackage (no scripts found during scan)
+  skippedCount += results.filter(r => r === null).length;
+
+  // Attach metadata to results array
+  scanned.skippedCount = skippedCount;
+  return scanned;
 }
 
 /**
@@ -269,7 +303,8 @@ function extractSemver(range) {
 async function resolveFromPackageJson(cwd, config, noDev) {
   const pkgPath = path.join(cwd, 'package.json');
   if (!fs.existsSync(pkgPath)) {
-    throw new Error(`package.json not found in ${cwd}`);
+    // No package.json — nothing to scan (e.g. empty directory)
+    return [];
   }
 
   let pkgJson;

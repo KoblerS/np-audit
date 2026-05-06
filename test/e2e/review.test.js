@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * E2E tests for --aware mode and --no-dev flag.
+ * E2E tests for --review mode and --no-dev flag.
  * Uses pre-populated node_modules to avoid network calls.
  */
 
@@ -14,7 +14,7 @@ const { spawnSync } = require('child_process');
 const CLI = path.join(__dirname, '../../bin/npa.js');
 
 function withTmpDirSync() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'npa-aware-e2e-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'npa-review-e2e-'));
   const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
   return { dir, cleanup };
 }
@@ -48,12 +48,12 @@ function buildV1Lockfile(pkgs) {
   const { dir, cleanup } = withTmpDirSync();
   const obfuscatedScript = "var _0xabc = _0xdef(_0x123);\neval(_0xabc);";
   createFakeModule(
-    dir, 'aware-test',
-    { name: 'aware-test', version: '1.0.0', scripts: { postinstall: 'node run.js' } },
+    dir, 'review-test',
+    { name: 'review-test', version: '1.0.0', scripts: { postinstall: 'node run.js' } },
     { 'run.js': obfuscatedScript }
   );
   fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify(
-    buildV1Lockfile([{ name: 'aware-test', version: '1.0.0' }])
+    buildV1Lockfile([{ name: 'review-test', version: '1.0.0' }])
   ));
   const result = spawnSync(process.execPath, [CLI, 'scan', '--json'], {
     cwd: dir, encoding: 'utf8',
@@ -61,7 +61,7 @@ function buildV1Lockfile(pkgs) {
     input: '', timeout: 20000,
   });
   cleanup();
-  assert.strictEqual(result.status, 1, `aware test 1: blocked exits 1. stderr: ${result.stderr}`);
+  assert.strictEqual(result.status, 1, `review test 1: blocked exits 1. stderr: ${result.stderr}`);
   const jsonStart = result.stdout.indexOf('{');
   if (jsonStart >= 0) {
     const parsed = JSON.parse(result.stdout.slice(jsonStart));
@@ -74,23 +74,23 @@ function buildV1Lockfile(pkgs) {
 {
   const { dir, cleanup } = withTmpDirSync();
   createFakeModule(
-    dir, 'aware-clean',
-    { name: 'aware-clean', version: '2.0.0', scripts: { postinstall: 'node post.js' } },
+    dir, 'review-clean',
+    { name: 'review-clean', version: '2.0.0', scripts: { postinstall: 'node post.js' } },
     { 'post.js': 'console.log("postinstall running");' }
   );
   fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify(
-    buildV1Lockfile([{ name: 'aware-clean', version: '2.0.0' }])
+    buildV1Lockfile([{ name: 'review-clean', version: '2.0.0' }])
   ));
   const result = spawnSync(process.execPath, [CLI, 'scan', '--json'], {
     cwd: dir, encoding: 'utf8',
     env: { ...process.env, NO_COLOR: '1' }, timeout: 20000,
   });
   cleanup();
-  assert.strictEqual(result.status, 0, `aware test 2: clean exits 0. stderr: ${result.stderr}`);
+  assert.strictEqual(result.status, 0, `review test 2: clean exits 0. stderr: ${result.stderr}`);
   const jsonStart = result.stdout.indexOf('{');
   if (jsonStart >= 0) {
     const parsed = JSON.parse(result.stdout.slice(jsonStart));
-    const pkg = parsed.packages.find(p => p.name === 'aware-clean');
+    const pkg = parsed.packages.find(p => p.name === 'review-clean');
     assert.ok(pkg, 'package in output');
     assert.ok(['OK', 'WARN'].includes(pkg.verdict), `verdict OK or WARN: ${pkg.verdict}`);
   }
@@ -115,7 +115,7 @@ function buildV1Lockfile(pkgs) {
     cwd: dir, encoding: 'utf8',
     env: { ...process.env, NO_COLOR: '1' }, timeout: 20000,
   });
-  assert.strictEqual(result1.status, 1, `aware test 3a: dev obfuscated blocks. stderr: ${result1.stderr}`);
+  assert.strictEqual(result1.status, 1, `review test 3a: dev obfuscated blocks. stderr: ${result1.stderr}`);
 
   // With --no-dev should pass
   const result2 = spawnSync(process.execPath, [CLI, 'scan', '--no-dev'], {
@@ -123,7 +123,7 @@ function buildV1Lockfile(pkgs) {
     env: { ...process.env, NO_COLOR: '1' }, timeout: 20000,
   });
   cleanup();
-  assert.strictEqual(result2.status, 0, `aware test 3b: --no-dev skips dev. stderr: ${result2.stderr}`);
+  assert.strictEqual(result2.status, 0, `review test 3b: --no-dev skips dev. stderr: ${result2.stderr}`);
   console.log('  Test 3 passed: --no-dev skips dev dependencies');
 }
 
@@ -144,10 +144,10 @@ function buildV1Lockfile(pkgs) {
     env: { ...process.env, NO_COLOR: '1' }, timeout: 20000,
   });
   cleanup();
-  assert.strictEqual(result.status, 1, `aware test 4: preinstall obfuscation blocked. stderr: ${result.stderr}`);
+  assert.strictEqual(result.status, 1, `review test 4: preinstall obfuscation blocked. stderr: ${result.stderr}`);
   console.log('  Test 4 passed: preinstall obfuscation is blocked');
 }
 
-console.log('  aware.test.js: all tests passed');
+console.log('  review.test.js: all tests passed');
 
 module.exports = Promise.resolve();

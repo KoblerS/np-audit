@@ -14,6 +14,7 @@ const DEFAULT_CONFIG = Object.freeze({
   parallelFetches: 5,
   skipScopes:      [],
   skipPackages:    [],
+  silent:          false,
 });
 
 const VALID_KEYS = new Set(Object.keys(DEFAULT_CONFIG));
@@ -43,6 +44,8 @@ function coerce(obj) {
     } else if (typeof def === 'number') {
       const n = Number(val);
       if (!isNaN(n)) result[key] = n;
+    } else if (typeof def === 'boolean') {
+      result[key] = val === true || val === 'true' || val === '1';
     } else {
       result[key] = val;
     }

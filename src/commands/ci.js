@@ -1,7 +1,7 @@
 'use strict';
 
 const { scan } = require('../core/scanner');
-const { runAware, runNpm } = require('../utils/aware');
+const { runAware, runNpm } = require('../utils/review');
 const output = require('../utils/output');
 
 module.exports = {
@@ -17,7 +17,7 @@ module.exports = {
     npa ci [options]
 
   Options:
-    --aware, -a   Interactive mode: review and allow/deny scripts
+    --review, -r   Interactive mode: review and allow/deny scripts
     --json        Output scan results as JSON
     --no-dev      Skip devDependencies in scan
     --verbose     Show detailed findings
@@ -25,29 +25,31 @@ module.exports = {
 
   Examples:
     npa ci            Clean install after audit
-    npa ci --aware    Review scripts interactively
+    npa ci --review    Review scripts interactively
 `;
   },
 
   async run({ flags, config, cwd }) {
-    output.printScanHeader();
-
     const results = await scan({ cwd, config, noDev: flags.noDev, verbose: flags.verbose });
+    const hasIssues = results.some(r => r.verdict !== 'OK');
+    const silent = config.silent && !hasIssues;
+
+    output.printScanHeader(silent);
 
     if (flags.json) {
       process.stdout.write(JSON.stringify(toJsonReport(results), null, 2) + '\n');
     } else {
-      printResults(results);
+      printResults(results, silent);
     }
 
     const blocked = results.filter(r => r.verdict === 'BLOCK');
 
-    if (blocked.length > 0 && !flags.aware) {
+    if (blocked.length > 0 && !flags.review) {
       output.error(`${blocked.length} package(s) blocked due to obfuscated install scripts.`);
       process.exit(1);
     }
 
-    if (flags.aware) {
+    if (flags.review) {
       const exit = await runAware({ results, command: 'ci', npmArgs: [], cwd });
       process.exit(exit);
     } else {
@@ -57,7 +59,8 @@ module.exports = {
   },
 };
 
-function printResults(results) {
+function printResults(results, silent = false) {
+  if (silent) return;
   if (results.length === 0) {
     output.success('No packages with install scripts found.');
     return;

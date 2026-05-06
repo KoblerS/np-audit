@@ -13,7 +13,7 @@ module.exports = {
   npa scan — Scan dependencies for obfuscated install scripts
 
   Usage:
-    npa scan [options]
+    npa scan [package] [options]
 
   Options:
     --json        Output results as JSON
@@ -23,15 +23,19 @@ module.exports = {
 
   Examples:
     npa scan              Scan all dependencies
+    npa scan lodash       Scan a specific package before installing
     npa scan --no-dev     Scan production dependencies only
     npa scan --json       Output machine-readable JSON
 `;
   },
 
-  async run({ flags, config, cwd }) {
-    output.printScanHeader();
+  async run({ args, flags, config, cwd }) {
+    const packages = args.filter(a => !a.startsWith('-'));
+    const results = await scan({ cwd, config, noDev: flags.noDev, verbose: flags.verbose, packages: packages.length > 0 ? packages : null });
+    const hasIssues = results.some(r => r.verdict !== 'OK');
+    const silent = config.silent && !hasIssues;
 
-    const results = await scan({ cwd, config, noDev: flags.noDev, verbose: flags.verbose });
+    output.printScanHeader(silent);
 
     if (flags.json) {
       process.stdout.write(JSON.stringify(toJsonReport(results), null, 2) + '\n');
@@ -39,15 +43,16 @@ module.exports = {
       process.exit(hasBlock ? 1 : 0);
     }
 
-    printResults(results);
-    output.printSummary(results.map(r => ({ verdict: r.verdict })));
+    printResults(results, silent);
+    if (!silent) output.printSummary(results);
 
     const hasBlock = results.some(r => r.verdict === 'BLOCK');
     process.exit(hasBlock ? 1 : 0);
   },
 };
 
-function printResults(results) {
+function printResults(results, silent = false) {
+  if (silent) return;
   if (results.length === 0) {
     output.success('No packages with install scripts found.');
     return;

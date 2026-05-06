@@ -1,7 +1,7 @@
 'use strict';
 
 const { scan } = require('../core/scanner');
-const { runAware, runNpm } = require('../utils/aware');
+const { runAware, runNpm } = require('../utils/review');
 const output = require('../utils/output');
 
 module.exports = {
@@ -17,7 +17,7 @@ module.exports = {
     npa install [package] [options]
 
   Options:
-    --aware, -a   Interactive mode: review and allow/deny scripts
+    --review, -r   Interactive mode: review and allow/deny scripts
     --json        Output scan results as JSON
     --no-dev      Skip devDependencies in scan
     --verbose     Show detailed findings
@@ -26,40 +26,43 @@ module.exports = {
   Examples:
     npa install                Install all deps after audit
     npa install lodash         Add lodash after auditing it
-    npa install --aware        Review scripts interactively
+    npa install --review        Review scripts interactively
 `;
   },
 
   async run({ args, flags, config, cwd }) {
-    const pkgName = args[0] || null;
-
-    output.printScanHeader();
+    const packages = args.filter(a => !a.startsWith('-'));
 
     const results = await scan({
       cwd,
       config,
       noDev:         flags.noDev,
       verbose:       flags.verbose,
-      singlePackage: pkgName,
+      packages:      packages.length > 0 ? packages : null,
     });
+
+    const hasIssues = results.some(r => r.verdict !== 'OK');
+    const silent = config.silent && !hasIssues;
+
+    output.printScanHeader(silent);
 
     if (flags.json) {
       process.stdout.write(JSON.stringify(toJsonReport(results), null, 2) + '\n');
     } else {
-      printResults(results);
+      printResults(results, silent);
     }
 
     const blocked = results.filter(r => r.verdict === 'BLOCK');
 
-    if (blocked.length > 0 && !flags.aware) {
+    if (blocked.length > 0 && !flags.review) {
       output.error(`${blocked.length} package(s) blocked due to obfuscated install scripts.`);
-      output.log(output.dim('  Run with --aware to interactively decide which scripts to allow.'));
+      output.log(output.dim('  Run with --review to interactively decide which scripts to allow.'));
       process.exit(1);
     }
 
-    const npmArgs = pkgName ? [pkgName] : [];
+    const npmArgs = packages.length > 0 ? packages : [];
 
-    if (flags.aware) {
+    if (flags.review) {
       const packagesWithScripts = results.filter(r => r.verdict !== 'OK' || r.scripts.length > 0);
       const exit = await runAware({
         results: packagesWithScripts.length > 0 ? packagesWithScripts : results,
@@ -75,7 +78,8 @@ module.exports = {
   },
 };
 
-function printResults(results) {
+function printResults(results, silent = false) {
+  if (silent) return;
   if (results.length === 0) {
     output.success('No packages with install scripts found.');
     return;

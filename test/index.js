@@ -17,7 +17,7 @@ const UNIT_TESTS = [
 const E2E_TESTS = [
   'e2e/install.test.js',
   'e2e/config.test.js',
-  'e2e/aware.test.js',
+  'e2e/review.test.js',
 ];
 
 let failed = 0;

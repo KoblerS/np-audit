@@ -138,18 +138,13 @@ function buildV1Lockfile(pkgs) {
   console.log('  Test 5 passed: --help works');
 }
 
-// ─── Test 6: missing lockfile and package.json → non-zero exit ──────────────
+// ─── Test 6: missing lockfile and package.json → exit 0 (nothing to scan) ───
 {
   const { dir, cleanup } = withTmpDirSync();
   const result = runCLI(['scan'], dir);
   cleanup();
-  assert.notStrictEqual(result.status, 0, 'Test 6: exits non-zero with missing files');
-  const output = result.stderr + result.stdout;
-  assert.ok(
-    output.includes('package-lock.json') || output.includes('package.json'),
-    `Test 6: error mentions missing file. stderr: ${result.stderr}`
-  );
-  console.log('  Test 6 passed: missing files error');
+  assert.strictEqual(result.status, 0, 'Test 6: exits 0 when no package.json (nothing to scan)');
+  console.log('  Test 6 passed: empty directory exits 0');
 }
 
 // ─── Test 7: warn-level package → exit 0 ───────────────────────────────────

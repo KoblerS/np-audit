@@ -6,10 +6,10 @@ const os = require('os');
 const output = require('../utils/output');
 
 const BASH_HOOK = `# npa npm hook
-npm() { [[ -n "$NPA_RUNNING" ]] && { command npm "$@"; return; }; case "$1" in scan) npa scan; return;; install|i|add|ci) command -v npa >/dev/null && { npa scan || { echo "[npa] Blocked. Use 'npa install --aware'"; return 1; }; };; esac; command npm "$@"; }`;
+npm() { [[ -n "$NPA_RUNNING" ]] && { command npm "$@"; return; }; case "$1" in scan) npa scan "\${@:2}"; return;; install|i|add) command -v npa >/dev/null && { local pkgs=(); for a in "\${@:2}"; do [[ "$a" != -* ]] && pkgs+=("$a"); done; if [[ \${#pkgs[@]} -gt 0 ]]; then npa scan "\${pkgs[@]}" || { echo "[npa] Blocked. Use 'npa install --review'"; return 1; }; else npa scan || { echo "[npa] Blocked. Use 'npa install --review'"; return 1; }; fi; };; ci) command -v npa >/dev/null && { npa scan || { echo "[npa] Blocked. Use 'npa ci --review'"; return 1; }; };; esac; command npm "$@"; }`;
 
 const POWERSHELL_HOOK = `# npa npm hook
-function npm { if($env:NPA_RUNNING){& npm.cmd @args;return}; if($args[0] -eq 'scan'){& npa scan;return}; if($args[0] -in @('install','i','add','ci')){& npa scan; if($LASTEXITCODE -ne 0){Write-Host "[npa] Blocked. Use 'npa install --aware'";return 1}}; & npm.cmd @args }`;
+function npm { if($env:NPA_RUNNING){& npm.cmd @args;return}; if($args[0] -eq 'scan'){& npa scan @($args|Select-Object -Skip 1);return}; if($args[0] -in @('install','i','add')){$pkgs=@($args|Where-Object{$_ -notmatch '^-'}|Select-Object -Skip 1); if($pkgs.Count -gt 0){& npa scan @pkgs; if($LASTEXITCODE -ne 0){Write-Host "[npa] Blocked.";return 1}}else{& npa scan; if($LASTEXITCODE -ne 0){Write-Host "[npa] Blocked.";return 1}}}; if($args[0] -eq 'ci'){& npa scan; if($LASTEXITCODE -ne 0){Write-Host "[npa] Blocked.";return 1}}; & npm.cmd @args }`;
 
 module.exports = {
   name: 'alias',

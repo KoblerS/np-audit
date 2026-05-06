@@ -22,7 +22,7 @@ function buildMainHelp() {
 ${lines.join('\n')}
 
   Flags:
-    --aware, -a   Interactive mode: choose which scripts to allow
+    --review, -r   Interactive mode: choose which scripts to allow
     --json        Machine-readable JSON output
     --no-dev      Skip devDependencies
     --verbose     Show extra detail
@@ -43,7 +43,7 @@ ${lines.join('\n')}
 function parseArgs(argv) {
   const args  = argv.slice(2);
   const flags = {
-    aware:   false,
+    review:  false,
     json:    false,
     noDev:   false,
     verbose: false,
@@ -55,8 +55,8 @@ function parseArgs(argv) {
 
   for (const arg of args) {
     switch (arg) {
-      case '--aware':
-      case '-a':         flags.aware   = true; break;
+      case '--review':
+      case '-r':         flags.review  = true; break;
       case '--json':     flags.json    = true; break;
       case '--no-dev':   flags.noDev   = true; break;
       case '--verbose':  flags.verbose = true; break;

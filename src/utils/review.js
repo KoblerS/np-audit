@@ -40,11 +40,21 @@ async function runAware(opts) {
 
   let cursor = 0;
 
+  // Use alternate screen buffer on supported terminals (not legacy Windows console)
+  const useAltScreen = process.stdout.isTTY && (
+    process.platform !== 'win32' ||
+    process.env.WT_SESSION ||  // Windows Terminal
+    process.env.ConEmuPID      // ConEmu
+  );
+
+  if (useAltScreen) {
+    process.stdout.write('\x1b[?1049h');
+  }
+
   function render() {
-    // Move cursor to top of list — use ANSI escape to clear + redraw
-    process.stdout.write('\x1b[2J\x1b[H'); // clear screen
+    process.stdout.write('\x1b[H\x1b[2J');
     output.log('');
-    output.log(output.bold('  npa --aware mode'));
+    output.log(output.bold('  npa --review mode'));
     output.log(output.dim('  Use ↑/↓ to navigate, SPACE to toggle, ENTER to confirm, q to quit'));
     output.log('');
     output.log(`  Found ${items.length} package(s) with install scripts:\n`);
@@ -115,8 +125,10 @@ async function runAware(opts) {
     process.stdin.on('keypress', onKey);
   });
 
-  // Clear screen after TUI exits
-  process.stdout.write('\x1b[2J\x1b[H');
+  // Exit alternate screen buffer (restores previous screen)
+  if (useAltScreen) {
+    process.stdout.write('\x1b[?1049l');
+  }
 
   const allowedItems = items.filter(i => i.allowed);
   const deniedItems  = items.filter(i => !i.allowed);
@@ -124,20 +136,43 @@ async function runAware(opts) {
   output.log('');
   output.info(`Proceeding with ${allowedItems.length} allowed / ${deniedItems.length} denied`);
 
-  if (deniedItems.length > 0) {
-    output.warn('Running npm with --ignore-scripts (will run allowed scripts manually after)');
-    const code = runNpm(command, [...npmArgs, '--ignore-scripts'], cwd);
-    if (code !== 0) return code;
+  // Get names of denied packages to exclude from install
+  const deniedNames = new Set(deniedItems.map(i => i.result.pkg.name));
 
-    for (const item of allowedItems) {
-      const exitCode = runPackageScripts(item.result, cwd);
-      if (exitCode !== 0) {
-        output.error(`Script for ${item.result.pkg.name} exited with code ${exitCode}`);
+  // Filter npmArgs to exclude denied packages
+  let filteredNpmArgs = npmArgs.filter(arg => {
+    // Extract package name (handle @scope/pkg and pkg@version formats)
+    const name = arg.startsWith('@')
+      ? arg.split('/').slice(0, 2).join('/').split('@').slice(0, 2).join('@').replace(/@[^@]*$/, '') || arg.split('@').slice(0, 2).join('@')
+      : arg.split('@')[0];
+    return !deniedNames.has(name);
+  });
+
+  // If all explicitly requested packages are denied, abort
+  if (npmArgs.length > 0 && filteredNpmArgs.length === 0) {
+    output.error('All requested packages were denied. Aborting install.');
+    return 1;
+  }
+
+  if (deniedItems.length > 0) {
+    if (filteredNpmArgs.length > 0 || npmArgs.length === 0) {
+      output.warn('Running npm with --ignore-scripts (will run allowed scripts manually after)');
+      const code = runNpm(command, [...filteredNpmArgs, '--ignore-scripts'], cwd);
+      if (code !== 0) return code;
+
+      for (const item of allowedItems) {
+        const exitCode = runPackageScripts(item.result, cwd);
+        if (exitCode !== 0) {
+          output.error(`Script for ${item.result.pkg.name} exited with code ${exitCode}`);
+        }
       }
+      return 0;
+    } else {
+      output.warn('No packages to install after excluding denied packages.');
+      return 0;
     }
-    return 0;
   } else {
-    return runNpm(command, npmArgs, cwd);
+    return runNpm(command, filteredNpmArgs.length > 0 ? filteredNpmArgs : npmArgs, cwd);
   }
 }
 
