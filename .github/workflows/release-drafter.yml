@@ -11,14 +11,18 @@ on:
       - main
 
 permissions:
-  id-token: write
-  contents: write
-  pull-requests: read
+  id-token: write       # OIDC token for provenance
+  contents: write       # Create/update draft releases
+  pull-requests: write  # Read PR titles/labels + add release notes from PRs
 
 jobs:
   update_release_draft:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed to analyse commits for changelog
+
       - uses: KoblerS/release-drafter@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
