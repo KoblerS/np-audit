@@ -2,6 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/np-audit.svg)](https://www.npmjs.com/package/np-audit)
 [![npm downloads](https://img.shields.io/npm/dm/np-audit.svg)](https://www.npmjs.com/package/np-audit)
+[![npm package size](https://img.shields.io/npm/unpacked-size/np-audit)](https://www.npmjs.com/package/np-audit)
 [![GitHub license](https://img.shields.io/github/license/KoblerS/np-audit.svg)](https://github.com/KoblerS/np-audit/blob/main/LICENSE)
 [![CI](https://github.com/KoblerS/np-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/KoblerS/np-audit/actions/workflows/ci.yml)
 
@@ -43,18 +44,18 @@ Real-world examples include:
 
 **`npa` never executes the scripts.** It downloads and statically analyzes them, detecting:
 
-| Signal | Example |
-|---|---|
-| `eval()` / `new Function()` | `eval(atob("aGVsbG8="))` |
-| Obfuscator.io patterns | `var _0x3f2a = [...]` |
-| High-entropy strings | Encrypted/compressed payloads |
-| Hex escape density | `\x68\x65\x6c\x6c\x6f` |
+| Signal                         | Example                                    |
+| ------------------------------ | ------------------------------------------ |
+| `eval()` / `new Function()`    | `eval(atob("aGVsbG8="))`                   |
+| Obfuscator.io patterns         | `var _0x3f2a = [...]`                      |
+| High-entropy strings           | Encrypted/compressed payloads              |
+| Hex escape density             | `\x68\x65\x6c\x6c\x6f`                     |
 | `String.fromCharCode()` chains | `String.fromCharCode(104,101,108,108,111)` |
-| Base64 decode + exec | `Buffer.from(x,'base64')` + `eval` |
-| Shell spawning | `require('child_process').exec(...)` |
-| Large hex literal arrays | `[0x1a, 0x2b, 0x3c, ...]` × 20+ |
-| `process.env` access | Token/credential harvesting |
-| Outbound network calls | Data exfiltration |
+| Base64 decode + exec           | `Buffer.from(x,'base64')` + `eval`         |
+| Shell spawning                 | `require('child_process').exec(...)`       |
+| Large hex literal arrays       | `[0x1a, 0x2b, 0x3c, ...]` × 20+            |
+| `process.env` access           | Token/credential harvesting                |
+| Outbound network calls         | Data exfiltration                          |
 
 ---
 
@@ -84,29 +85,29 @@ npa --version
 
 ### Commands
 
-| Command | Alias | Description |
-|---|---|---|
-| `npa install [package]` | `npa i` | Audit then run `npm install` |
-| `npa ci` | — | Audit then run `npm ci` |
-| `npa scan` | `npa s` | Scan only, no install |
-| `npa config get` | `npa c get` | Show current configuration |
-| `npa config set <key> <value>` | `npa c set` | Update a config value |
-| `npa alias` | — | Print shell hook for auto-scanning |
-| `npa alias --install` | — | Install hook to shell profile |
-| `npa alias --uninstall` | — | Remove hook from shell profile |
+| Command                        | Alias       | Description                        |
+| ------------------------------ | ----------- | ---------------------------------- |
+| `npa install [package]`        | `npa i`     | Audit then run `npm install`       |
+| `npa ci`                       | —           | Audit then run `npm ci`            |
+| `npa scan`                     | `npa s`     | Scan only, no install              |
+| `npa config get`               | `npa c get` | Show current configuration         |
+| `npa config set <key> <value>` | `npa c set` | Update a config value              |
+| `npa alias`                    | —           | Print shell hook for auto-scanning |
+| `npa alias --install`          | —           | Install hook to shell profile      |
+| `npa alias --uninstall`        | —           | Remove hook from shell profile     |
 
 Use `npa <command> -h` for detailed help on any command.
 
 ### Flags
 
-| Flag | Alias | Works with | Description |
-|---|---|---|---|
-| `--review` | `-r` | `install`, `ci` | Interactive mode — choose which scripts to allow |
-| `--json` | — | `install`, `ci`, `scan` | Machine-readable JSON output |
-| `--no-dev` | — | `install`, `ci`, `scan` | Skip devDependencies |
-| `--verbose` | — | all | Show fetch progress and extra detail |
-| `--version` | — | — | Print version and exit |
-| `--help` | `-h` | — | Print help and exit |
+| Flag        | Alias | Works with              | Description                                      |
+| ----------- | ----- | ----------------------- | ------------------------------------------------ |
+| `--review`  | `-r`  | `install`, `ci`         | Interactive mode — choose which scripts to allow |
+| `--json`    | —     | `install`, `ci`, `scan` | Machine-readable JSON output                     |
+| `--no-dev`  | —     | `install`, `ci`, `scan` | Skip devDependencies                             |
+| `--verbose` | —     | all                     | Show fetch progress and extra detail             |
+| `--version` | —     | —                       | Print version and exit                           |
+| `--help`    | `-h`  | —                       | Print help and exit                              |
 
 ### Drop-in replacement for `npm install`
 
@@ -212,25 +213,25 @@ npa alias --uninstall
 
 #### All config keys
 
-| Key | Default | Description |
-|---|---|---|
-| `blockScore` | `7` | Score threshold for hard block (exit 1) |
-| `warnScore` | `4` | Score threshold for warning (exit 0) |
-| `registry` | `https://registry.npmjs.org` | npm registry URL |
-| `timeout` | `30000` | HTTP request timeout (ms) |
-| `parallelFetches` | `5` | Concurrent tarball downloads |
-| `skipScopes` | `[]` | `@scope` prefixes to skip entirely |
-| `skipPackages` | `[]` | Specific package names to skip |
-| `silent` | `false` | Suppress output when no issues found |
+| Key               | Default                      | Description                             |
+| ----------------- | ---------------------------- | --------------------------------------- |
+| `blockScore`      | `7`                          | Score threshold for hard block (exit 1) |
+| `warnScore`       | `4`                          | Score threshold for warning (exit 0)    |
+| `registry`        | `https://registry.npmjs.org` | npm registry URL                        |
+| `timeout`         | `30000`                      | HTTP request timeout (ms)               |
+| `parallelFetches` | `5`                          | Concurrent tarball downloads            |
+| `skipScopes`      | `[]`                         | `@scope` prefixes to skip entirely      |
+| `skipPackages`    | `[]`                         | Specific package names to skip          |
+| `silent`          | `false`                      | Suppress output when no issues found    |
 
 ---
 
 ## Exit codes
 
-| Code | Meaning |
-|---|---|
-| `0` | All packages clean or only warnings |
-| `1` | One or more packages blocked |
+| Code | Meaning                             |
+| ---- | ----------------------------------- |
+| `0`  | All packages clean or only warnings |
+| `1`  | One or more packages blocked        |
 
 ---
 
