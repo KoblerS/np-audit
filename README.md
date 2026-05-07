@@ -40,7 +40,7 @@ Real-world examples include:
 - **[ua-parser-js (2021)](https://github.com/advisories/GHSA-pjwm-rvh2-c87w)** — cryptocurrency miner + info-stealer injected via hijacked maintainer account
 - **[node-ipc (2022)](https://snyk.io/blog/peacenotwar-malicious-npm-node-ipc-package-vulnerability/)** — wiper malware targeting systems by geo-IP
 - **[colors / faker (2022)](https://snyk.io/blog/open-source-npm-packages-colors-faker/)** — deliberate sabotage by the maintainer via postinstall
-- **XZ Utils (2024)** — multi-year social engineering + backdoor via build scripts (C ecosystem, but same pattern)
+- **[SAP CAP / cds-dbs (2025)](https://community.sap.com/t5/technology-blog-posts-by-sap/cap-developers-call-to-action-to-mitigate-and-apply-solution-provided-in/ba-p/14387683)** — compromised npm package targeting SAP developers
 
 **`npa` never executes the scripts.** It downloads and statically analyzes them, detecting:
 
