@@ -6,7 +6,25 @@ const { parseLockfile }                = require('../utils/lockfile');
 const { fetchTarball, buildTarballUrl, verifyIntegrity } = require('../utils/fetcher');
 const { parseTarGz, extractFile, getPackageJson }        = require('../utils/tarball');
 const { detectObfuscation }            = require('./detector');
+const { walkRequires, MAX_FILES_PER_PACKAGE, MAX_TOTAL_BYTES } = require('./requireWalker');
+const { parseCommand }                 = require('../utils/command');
 const output                           = require('../utils/output');
+
+// Lifecycle scripts that npm executes during install. The original tool only
+// looked at preinstall/install/postinstall, but `prepare` is also automatically
+// run for git dependencies and during `npm install` of local paths; and
+// `preprepare`/`postprepare` wrap `prepare`. We also include `prepublish` (run
+// during `npm install` historically — deprecated but still respected by older
+// npm versions in the dependency graph).
+const LIFECYCLE_SCRIPTS = [
+  'preinstall',
+  'install',
+  'postinstall',
+  'preprepare',
+  'prepare',
+  'postprepare',
+  'prepublish',
+];
 
 /**
  * Main scan orchestrator.
@@ -91,9 +109,99 @@ async function scan(opts) {
   // Add packages that returned null from scanPackage (no scripts found during scan)
   skippedCount += results.filter(r => r === null).length;
 
+  // Optionally scan the *current project's own* lifecycle scripts. This is
+  // off by default to avoid surprising users — `npa` is a drop-in replacement
+  // for `npm install` and most projects' own postinstall scripts are
+  // intentionally local. Set `scanSelf: true` in .npmauditor.json (or pass
+  // --scan-self) to opt in. Useful for CI on third-party PRs.
+  if (config.scanSelf) {
+    const selfResult = scanCwdProject(cwd, config);
+    if (selfResult) scanned.unshift(selfResult);
+    else skippedCount++;
+  }
+
   // Attach metadata to results array
   scanned.skippedCount = skippedCount;
   return scanned;
+}
+
+/**
+ * Scan the lifecycle scripts of the CWD's own package.json.
+ * Returns null when there is no package.json or no relevant scripts.
+ */
+function scanCwdProject(cwd, config) {
+  const pkgJsonPath = path.join(cwd, 'package.json');
+  if (!fs.existsSync(pkgJsonPath)) return null;
+
+  let pkgJson;
+  try {
+    pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+  } catch {
+    return null;
+  }
+
+  if (!hasInstallScripts(pkgJson)) return null;
+
+  // Synthesize a package descriptor so the report renders consistently.
+  const pkg = {
+    name:    pkgJson.name || '(current project)',
+    version: pkgJson.version || '0.0.0',
+    self:    true,
+  };
+
+  // The CWD reader resolves paths relative to the project root (where
+  // package.json lives), so the local-fs reader is reused.
+  return analyzeScriptsLocalFromDir(pkg, pkgJson, cwd, config);
+}
+
+/**
+ * Analyze a package's lifecycle scripts using a directory root as the
+ * filesystem base. Used for both node_modules packages and the CWD itself.
+ */
+function analyzeScriptsLocalFromDir(pkg, pkgJson, rootDir, config) {
+  const scripts = getInstallScripts(pkgJson);
+  if (scripts.length === 0) return null;
+
+  const reader = makeLocalReader(rootDir);
+  const scriptResults = [];
+
+  for (const { lifecycle, command } of scripts) {
+    const refs = parseCommand(command);
+    if (refs.length === 0) {
+      const result = detectObfuscation(command, config);
+      scriptResults.push({ lifecycle, file: '(inline)', code: command, ...result });
+      continue;
+    }
+    for (const ref of refs) {
+      if (ref.kind === 'inline') {
+        const result = detectObfuscation(ref.code, config);
+        scriptResults.push({ lifecycle, file: `(inline:${ref.interpreter})`, code: ref.code, ...result });
+        continue;
+      }
+      if (ref.interpreter === 'node' || ref.interpreter === 'auto') {
+        scriptResults.push(analyzeScriptWithWalker(lifecycle, ref.path, reader, config));
+      } else {
+        const buf = reader(ref.path);
+        if (!buf) {
+          scriptResults.push({
+            lifecycle, file: ref.path, code: '', score: 0,
+            findings: [{
+              name: 'missing-script', score: 0,
+              detail: `Command references "${ref.path}" but file not found`,
+            }],
+            verdict: 'OK',
+          });
+          continue;
+        }
+        const code = buf.toString('utf8');
+        const result = detectObfuscation(code, config);
+        scriptResults.push({ lifecycle, file: ref.path, code, ...result });
+      }
+    }
+  }
+
+  if (scriptResults.length === 0) return null;
+  return summarizeResults(pkg, scriptResults, config);
 }
 
 /**
@@ -158,74 +266,214 @@ async function scanPackage(pkg, cwd, config, verbose) {
 }
 
 /**
+ * Analyze a single entry-script reference, including every internal
+ * require/import target reachable from it. Returns one combined result row
+ * per top-level script reference (not one per file walked), so the existing
+ * report shape stays the same.
+ *
+ * @param {string} lifecycle               e.g. "postinstall"
+ * @param {string} entryPath               normalized path of the entry file
+ * @param {(p: string) => Buffer|null} readFile
+ * @param {object} config
+ * @returns {object} script result row
+ */
+function analyzeScriptWithWalker(lifecycle, entryPath, readFile, config) {
+  const walk = walkRequires(entryPath, readFile);
+
+  if (walk.files.size === 0) {
+    return {
+      lifecycle,
+      file: entryPath,
+      code: '',
+      score: 0,
+      findings: [{
+        name: 'missing-script',
+        score: 0,
+        detail: `Command references "${entryPath}" but file not found`,
+      }],
+      verdict: 'OK',
+    };
+  }
+
+  // Run detection on every walked file and aggregate.
+  const findings = [];
+  let maxScore = 0;
+  let entryCode = '';
+
+  for (const [filePath, code] of walk.files) {
+    if (filePath === entryPath) entryCode = code;
+    const result = detectObfuscation(code, config);
+    if (result.score > maxScore) maxScore = result.score;
+    // Tag each finding with the file it came from so the report makes sense
+    // when multiple files contribute.
+    for (const f of result.findings) {
+      findings.push({
+        ...f,
+        detail: walk.files.size > 1 ? `[${filePath}] ${f.detail}` : f.detail,
+      });
+    }
+  }
+
+  // Surface dynamic requires as findings — these are unresolvable load
+  // targets and the user should review them. They count as a small score
+  // bump so a script that ONLY does require(variable) still warrants a look.
+  for (const dr of walk.dynamicRequires) {
+    findings.push({
+      name: 'dynamic-require',
+      score: 4,
+      detail: `[${dr.file}] dynamic require/import: ${dr.hint}`,
+    });
+    if (4 > maxScore) maxScore = 4;
+  }
+
+  // Truncation is a defense-in-depth signal — a package that loads >50 files
+  // from postinstall is suspicious in itself.
+  if (walk.truncated) {
+    findings.push({
+      name: 'oversized-require-graph',
+      score: 4,
+      detail: `Require graph exceeded scan limits (>${MAX_FILES_PER_PACKAGE} files or ${Math.round(MAX_TOTAL_BYTES / 1024 / 1024)}MB)`,
+    });
+    if (4 > maxScore) maxScore = 4;
+  }
+
+  // Unresolved internal requires (e.g. require('./does-not-exist')) are
+  // recorded but not scored. They might be legitimate (lazy-loaded optional
+  // deps) but are also a common camouflage technique.
+  for (const u of walk.unresolved) {
+    findings.push({
+      name: 'unresolved-require',
+      score: 0,
+      detail: `[${u.file}] could not resolve "${u.target}"`,
+    });
+  }
+
+  return {
+    lifecycle,
+    file: entryPath,
+    code: entryCode,
+    score: maxScore,
+    findings,
+    verdict: verdictFromScore(maxScore, config),
+    walkedFiles: Array.from(walk.files.keys()),
+  };
+}
+
+/**
+ * Build a tarball-aware readFile callback. The tarball file map uses keys
+ * like "package/<path>", so we normalize away the leading top-level dir.
+ */
+function makeTarballReader(files) {
+  // Determine the leading-dir prefix once (typically "package/").
+  let prefix = '';
+  for (const key of files.keys()) {
+    const slash = key.indexOf('/');
+    if (slash > 0) { prefix = key.slice(0, slash + 1); break; }
+  }
+  return (normalizedPath) => {
+    // Try with the detected prefix first, then exact, then any leading-dir strip.
+    if (prefix) {
+      const buf = files.get(prefix + normalizedPath);
+      if (buf) return buf;
+    }
+    if (files.has(normalizedPath)) return files.get(normalizedPath);
+    // Last-ditch: try every entry stripped of its leading component.
+    for (const [k, v] of files) {
+      if (k.replace(/^[^/]+\//, '') === normalizedPath) return v;
+    }
+    return null;
+  };
+}
+
+/**
+ * Build a local-filesystem readFile callback rooted at the package dir.
+ */
+function makeLocalReader(pkgDir) {
+  return (normalizedPath) => {
+    if (!pkgDir) return null;
+    const abs = path.join(pkgDir, normalizedPath);
+    // Guard against path traversal escaping the package root. Anything that
+    // resolves outside pkgDir is treated as not-found.
+    const rel = path.relative(pkgDir, abs);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    try {
+      return fs.readFileSync(abs);
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
  * Analyze install scripts from a tarball's file map.
  */
 function analyzeScripts(pkg, pkgJson, files, config) {
   const scripts = getInstallScripts(pkgJson);
   if (scripts.length === 0) return null;
 
+  const reader = makeTarballReader(files);
   const scriptResults = [];
 
   for (const { lifecycle, command } of scripts) {
-    const scriptFile = extractScriptFileFromCommand(command);
-    if (!scriptFile) {
-      // Inline shell command — analyze the command string itself
+    const refs = parseCommand(command);
+    if (refs.length === 0) {
       const result = detectObfuscation(command, config);
       scriptResults.push({ lifecycle, file: '(inline)', code: command, ...result });
       continue;
     }
 
-    const fileBuf = extractFile(files, scriptFile);
-    if (!fileBuf) continue;
+    for (const ref of refs) {
+      if (ref.kind === 'inline') {
+        const result = detectObfuscation(ref.code, config);
+        scriptResults.push({ lifecycle, file: `(inline:${ref.interpreter})`, code: ref.code, ...result });
+        continue;
+      }
 
-    const code = fileBuf.toString('utf8');
-    const result = detectObfuscation(code, config);
-    scriptResults.push({ lifecycle, file: scriptFile, code, ...result });
+      // ref.kind === 'file'. Only Node-interpreted JS gets the require walk;
+      // shell scripts and binary files are read once and analyzed flat.
+      if (ref.interpreter === 'node' || ref.interpreter === 'auto') {
+        scriptResults.push(analyzeScriptWithWalker(lifecycle, ref.path, reader, config));
+      } else {
+        const fileBuf = reader(ref.path);
+        if (!fileBuf) {
+          scriptResults.push({
+            lifecycle,
+            file: ref.path,
+            code: '',
+            score: 0,
+            findings: [{
+              name: 'missing-script',
+              score: 0,
+              detail: `Command references "${ref.path}" but file not found`,
+            }],
+            verdict: 'OK',
+          });
+          continue;
+        }
+        const code = fileBuf.toString('utf8');
+        const result = detectObfuscation(code, config);
+        scriptResults.push({ lifecycle, file: ref.path, code, ...result });
+      }
+    }
   }
 
   if (scriptResults.length === 0) return null;
-
-  const maxScore = Math.max(...scriptResults.map(r => r.score));
-  const allFindings = scriptResults.flatMap(r => r.findings);
-  const verdict = verdictFromScore(maxScore, config);
-
-  return { pkg, scripts: scriptResults, score: maxScore, findings: allFindings, verdict };
+  return summarizeResults(pkg, scriptResults, config);
 }
 
 /**
  * Analyze install scripts from local node_modules.
  */
 function analyzeScriptsLocal(pkg, pkgJson, cwd, config) {
-  const scripts = getInstallScripts(pkgJson);
-  if (scripts.length === 0) return null;
-
   const pkgDir = findLocalPackageDir(cwd, pkg.name);
-  const scriptResults = [];
+  if (!pkgDir) return null;
+  return analyzeScriptsLocalFromDir(pkg, pkgJson, pkgDir, config);
+}
 
-  for (const { lifecycle, command } of scripts) {
-    const scriptFile = extractScriptFileFromCommand(command);
-    if (!scriptFile) {
-      const result = detectObfuscation(command, config);
-      scriptResults.push({ lifecycle, file: '(inline)', code: command, ...result });
-      continue;
-    }
-
-    const absolutePath = pkgDir ? path.join(pkgDir, scriptFile) : null;
-    if (!absolutePath || !fs.existsSync(absolutePath)) continue;
-
-    let code;
-    try { code = fs.readFileSync(absolutePath, 'utf8'); } catch { continue; }
-
-    const result = detectObfuscation(code, config);
-    scriptResults.push({ lifecycle, file: scriptFile, code, ...result });
-  }
-
-  if (scriptResults.length === 0) return null;
-
+function summarizeResults(pkg, scriptResults, config) {
   const maxScore = Math.max(...scriptResults.map(r => r.score));
   const allFindings = scriptResults.flatMap(r => r.findings);
   const verdict = verdictFromScore(maxScore, config);
-
   return { pkg, scripts: scriptResults, score: maxScore, findings: allFindings, verdict };
 }
 
@@ -233,31 +481,31 @@ function analyzeScriptsLocal(pkg, pkgJson, cwd, config) {
 
 function hasInstallScripts(pkgJson) {
   if (!pkgJson || !pkgJson.scripts) return false;
-  return !!(pkgJson.scripts.preinstall || pkgJson.scripts.postinstall || pkgJson.scripts.install);
+  return LIFECYCLE_SCRIPTS.some(lc => pkgJson.scripts[lc]);
 }
 
 function getInstallScripts(pkgJson) {
   const result = [];
   const s = pkgJson && pkgJson.scripts || {};
-  for (const lc of ['preinstall', 'install', 'postinstall']) {
+  for (const lc of LIFECYCLE_SCRIPTS) {
     if (s[lc]) result.push({ lifecycle: lc, command: s[lc] });
   }
   return result;
 }
 
 /**
- * Extract the JS file path from a script command like "node ./install.js" or "node scripts/setup".
- * Returns null if it's a pure shell command.
+ * Extract the first JS file path from a script command.
+ *
+ * @deprecated Superseded by `parseCommand` in src/utils/command.js, which
+ * understands chained commands, shell scripts, `node -e`, multi-interpreter
+ * pipelines, and returns *all* script references instead of just one. Kept
+ * here only so external consumers importing this symbol don't break.
+ * Returns null if no node-invoked JS file can be extracted.
  */
 function extractScriptFileFromCommand(command) {
-  const m = command.match(/(?:^|\s)node\s+([^\s]+\.(?:js|mjs|cjs))/);
-  if (m) return m[1].replace(/^\.\//, '');
-  const m2 = command.match(/(?:^|\s)node\s+([^\s]+)(?:\s|$)/);
-  if (m2) {
-    const f = m2[1].replace(/^\.\//, '');
-    if (!f.startsWith('-')) return f + (f.includes('.') ? '' : '.js');
-  }
-  return null;
+  const refs = parseCommand(command);
+  const fileRef = refs.find(r => r.kind === 'file' && r.interpreter === 'node');
+  return fileRef ? fileRef.path : null;
 }
 
 function tryReadLocalPackageJson(cwd, pkg) {

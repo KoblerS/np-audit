@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = Object.freeze({
   skipScopes:      [],
   skipPackages:    [],
   silent:          false,
+  scanSelf:        true,
 });
 
 const VALID_KEYS = new Set(Object.keys(DEFAULT_CONFIG));

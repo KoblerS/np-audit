@@ -47,15 +47,37 @@ Real-world examples include:
 | Signal                         | Example                                    |
 | ------------------------------ | ------------------------------------------ |
 | `eval()` / `new Function()`    | `eval(atob("aGVsbG8="))`                   |
+| Indirect eval                  | `(0, eval)(x)`, `globalThis['ev'+'al'](x)` |
+| Function constructor prototype | `({}).constructor.constructor("…")()`      |
+| `setTimeout` with string arg   | `setTimeout('alert(1)', 100)`              |
 | Obfuscator.io patterns         | `var _0x3f2a = [...]`                      |
 | High-entropy strings           | Encrypted/compressed payloads              |
-| Hex escape density             | `\x68\x65\x6c\x6c\x6f`                     |
+| Split-literal high entropy     | `'aB' + 'cD' + 'eF' + …` (concat chain)    |
+| Hex / Unicode escape density   | `\x68\x65\x6c\x6c\x6f`, `\u0068\u0065…`    |
 | `String.fromCharCode()` chains | `String.fromCharCode(104,101,108,108,111)` |
-| Base64 decode + exec           | `Buffer.from(x,'base64')` + `eval`         |
+| Decimal char-code arrays       | `[101,118,97,108,...]` (printable ASCII)   |
+| Base64 / hex decode + exec     | `Buffer.from(x,'base64'\|'hex')` + `eval`  |
 | Shell spawning                 | `require('child_process').exec(...)`       |
+| `worker_threads`               | `new Worker(...)`, eval-class surface      |
+| Concealed `require`            | `require('child' + '_process')`            |
+| Dynamic `require` / `import`   | `require(variable)`, `import(expr)`        |
 | Large hex literal arrays       | `[0x1a, 0x2b, 0x3c, ...]` × 20+            |
 | `process.env` access           | Token/credential harvesting                |
-| Outbound network calls         | Data exfiltration                          |
+| Outbound network calls         | `https`/`http`/`net`/`dns`/`tls`/`dgram`/`http2`, `node:` prefix, dynamic `import()` |
+| Missing referenced script      | Command references file not in tarball     |
+| Oversized require graph        | Postinstall reaches >50 files or >5 MB     |
+
+### Coverage beyond the entry script
+
+`npa` doesn't just inspect the single file named in the lifecycle command. It:
+
+- Splits chained commands (`&&`, `||`, `;`, `|`) and analyses each segment, so `node setup.js && node payload.js` no longer hides the second invocation.
+- Handles `node -e "…"`, `sh -c "…"`, `python -c "…"` by analysing the inline code rather than just the wrapper command.
+- Reads shell scripts (`sh ./install.sh`), Python scripts, and shebang-invoked files — not only `node` targets.
+- Follows internal `require('./…')` and `import './…'` chains across the package (with cycle detection and per-package caps), so payloads hidden in helper files like `lib/helper.js` are caught.
+- Records dynamic `require(variable)` / `import(expr)` calls as findings, since they can't be resolved statically.
+- Scans the project's **own** `package.json` lifecycle scripts by default, catching PRs and supply-chain attacks that target the repository itself. Opt out with `scanSelf: false` in `.npmauditor.json`.
+- Inspects **all** lifecycle scripts npm may run, not only `preinstall`/`install`/`postinstall`: also `prepare`, `preprepare`, `postprepare`, and `prepublish`.
 
 ---
 
@@ -223,6 +245,7 @@ npa alias --uninstall
 | `skipScopes`      | `[]`                         | `@scope` prefixes to skip entirely      |
 | `skipPackages`    | `[]`                         | Specific package names to skip          |
 | `silent`          | `false`                      | Suppress output when no issues found    |
+| `scanSelf`        | `true`                       | Also scan the current project's own `package.json` lifecycle scripts |
 
 ---
 
@@ -240,10 +263,13 @@ npa alias --uninstall
 1. **Parse** `package-lock.json` (supports v1, v2, v3 formats)
 2. **Filter** packages: skip dev deps (`--no-dev`), skipped scopes/packages, packages without install scripts
 3. **Fetch or read** — for packages in `node_modules`: read from disk. For packages not yet installed: download the tarball from the npm registry and parse it in memory (pure Node.js tar.gz reader, no `tar` package)
-4. **Analyze** each `preinstall`/`install`/`postinstall` script file statically — never execute
-5. **Score** findings (0–10 per signal), classify as DANGER / WARN / OK based on config thresholds
-6. **Report** results to terminal or `--json`
-7. **Proceed** — run npm normally, or in `--review` mode let you selectively allow scripts
+4. **Parse the lifecycle command** — split on `&&` / `||` / `;` / `|`, classify each segment by interpreter (`node`, `sh`, `python`, `bun`, …), and treat `node -e` / `sh -c` arguments as inline code
+5. **Walk the require/import graph** from each entry script — following internal `./` / `../` paths, with cycle detection and per-package caps (50 files / 5 MB)
+6. **Analyze** every reached file statically across all lifecycle scripts (`preinstall`, `install`, `postinstall`, `prepare`, `preprepare`, `postprepare`, `prepublish`) — never execute
+7. **Also scan the current project's own** `package.json` lifecycle scripts (unless `scanSelf: false`)
+8. **Score** findings (0–10 per signal), classify as DANGER / WARN / OK based on config thresholds
+9. **Report** results to terminal or `--json` — each finding is tagged with the file it came from
+10. **Proceed** — run npm normally, or in `--review` mode let you selectively allow scripts
 
 ---
 
