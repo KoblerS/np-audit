@@ -37,6 +37,7 @@ ${lines.join('\n')}
     parallelFetches  Concurrent downloads (default: ${DEFAULT_CONFIG.parallelFetches})
     skipScopes       Array of @scopes to skip
     skipPackages     Array of package names to skip
+    maxTarballSize   Max unpacked tarball size (default: ${DEFAULT_CONFIG.maxTarballSize})
 `;
 }
 

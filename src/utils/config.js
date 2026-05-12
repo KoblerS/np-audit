@@ -15,6 +15,8 @@ const DEFAULT_CONFIG = Object.freeze({
   skipScopes:      [],
   skipPackages:    [],
   silent:          false,
+  scanSelf:        true,
+  maxTarballSize:  '50MB', // Max unpacked tarball size (e.g. '5MB', '1GB', or bytes as number)
 });
 
 const VALID_KEYS = new Set(Object.keys(DEFAULT_CONFIG));
@@ -29,9 +31,34 @@ function readJSON(filePath) {
 
 function loadConfig(cwd) {
   const base    = { ...DEFAULT_CONFIG };
+  // Parse the default maxTarballSize string to bytes
+  base.maxTarballSize = parseSize(base.maxTarballSize);
   const global_ = readJSON(GLOBAL_CONFIG_PATH) || {};
   const local   = cwd ? readJSON(path.join(cwd, '.npmauditor.json')) || {} : {};
   return Object.assign(base, coerce(global_), coerce(local));
+}
+
+/**
+ * Parse size strings like '5MB', '1GB', '500KB' to bytes.
+ * @param {string|number} value
+ * @returns {number} Size in bytes
+ */
+function parseSize(value) {
+  if (typeof value === 'number') return Math.max(0, value);
+  if (typeof value !== 'string') return 0;
+
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)?$/i);
+  if (!match) return 0;
+
+  const num = parseFloat(match[1]);
+  const unit = (match[2] || 'B').toUpperCase();
+
+  const multipliers = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3 };
+  const bytes = num * (multipliers[unit] || 1);
+
+  // Cap at available RAM to prevent out-of-memory
+  const totalMem = os.totalmem();
+  return Math.min(Math.max(0, Math.floor(bytes)), totalMem);
 }
 
 function coerce(obj) {
@@ -39,7 +66,9 @@ function coerce(obj) {
   for (const [key, val] of Object.entries(obj)) {
     if (!VALID_KEYS.has(key)) continue;
     const def = DEFAULT_CONFIG[key];
-    if (Array.isArray(def)) {
+    if (key === 'maxTarballSize') {
+      result[key] = parseSize(val);
+    } else if (Array.isArray(def)) {
       result[key] = Array.isArray(val) ? val : [val];
     } else if (typeof def === 'number') {
       const n = Number(val);
@@ -71,4 +100,4 @@ function getGlobalConfigPath() {
   return GLOBAL_CONFIG_PATH;
 }
 
-module.exports = { loadConfig, setGlobalConfig, getGlobalConfigPath, DEFAULT_CONFIG, VALID_KEYS };
+module.exports = { loadConfig, setGlobalConfig, getGlobalConfigPath, DEFAULT_CONFIG, VALID_KEYS, parseSize };

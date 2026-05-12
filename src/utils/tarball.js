@@ -9,11 +9,13 @@ const BLOCK_SIZE = 512;
  * Pure Node.js — no external dependencies.
  * Handles GNU long name (typeflag 'L') and POSIX ustar extended headers (typeflag 'x').
  * @param {Buffer} gzipBuffer
+ * @param {number} [maxSize] Maximum total unpacked size in bytes
  * @returns {Map<string, Buffer>}
  */
-function parseTarGz(gzipBuffer) {
+function parseTarGz(gzipBuffer, maxSize = null) {
   const tar = zlib.gunzipSync(gzipBuffer);
   const files = new Map();
+  let totalUnpackedSize = 0;
 
   let offset = 0;
   let pendingLongName = null;
@@ -56,6 +58,10 @@ function parseTarGz(gzipBuffer) {
     name = name.replace(/\0/g, '');
 
     if ((typeFlag === '0' || typeFlag === '\0') && size > 0) {
+      totalUnpackedSize += size;
+      if (maxSize !== null && maxSize !== undefined && totalUnpackedSize > maxSize) {
+        throw new Error(`Tarball unpacked size (${totalUnpackedSize} bytes) exceeds limit (${maxSize} bytes) — potential zip bomb`);
+      }
       files.set(name, tar.slice(offset, offset + size));
     }
 

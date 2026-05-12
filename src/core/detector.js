@@ -3,11 +3,12 @@
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_CODE_SIZE = 500000; // 500KB - chunk larger files
+const CHUNK_STRIDE  = 250000; // 50% overlap between adjacent chunks
 
 // ─── Individual detection checks ─────────────────────────────────────────────
 
 /**
- * Detect eval / dynamic code execution.
+ * Detect eval / dynamic code execution, including common indirect-eval tricks.
  * @param {string} code
  * @returns {Finding|null}
  */
@@ -18,6 +19,18 @@ function checkEval(code) {
     /vm\.runInThisContext\s*\(/,
     /vm\.runInNewContext\s*\(/,
     /vm\.Script\s*\(/,
+    // Indirect eval — (0, eval)(...) is the canonical sloppy-mode trick
+    /\(\s*0\s*,\s*eval\s*\)\s*\(/,
+    // Bracket access on a global object: global['eval'], globalThis["eval"], window['eval'],
+    // and the same with the string built from concatenation: globalThis['ev'+'al']
+    /(?:global|globalThis|window|self|this)\s*\[\s*['"`](?:eval|Function)['"`]\s*\]\s*\(/,
+    /(?:global|globalThis|window|self|this)\s*\[\s*['"`][^'"`]*['"`](?:\s*\+\s*['"`][^'"`]*['"`]){1,}\s*\]\s*\(/,
+    // Function constructor accessed via prototype: ({}).constructor.constructor("...")()
+    /\.constructor\s*\.\s*constructor\s*\(/,
+    // setTimeout/setInterval with a string argument is a legacy eval vector
+    /\b(?:setTimeout|setInterval)\s*\(\s*['"`]/,
+    // require('vm') hint when combined with run* — covered above by vm.*, but catch the import too
+    /require\s*\(\s*['"]vm['"]\s*\)/,
   ];
   const matched = patterns.filter(p => p.test(code));
   if (matched.length === 0) return null;
@@ -45,6 +58,7 @@ function checkObfuscatorIo(code) {
 /**
  * Detect high-entropy strings (likely encoded/encrypted payloads).
  * Uses indexOf-based extraction to avoid regex stack overflow on large files.
+ * Also detects concatenation chains used to defeat per-literal entropy checks.
  * @param {string} code
  * @returns {Finding|null}
  */
@@ -77,80 +91,150 @@ function checkHighEntropy(code) {
     }
   }
 
-  if (maxEntropy < 4.5) return null;
-  return {
-    name: 'high-entropy-string',
-    score: 6,
-    detail: `Entropy ${maxEntropy.toFixed(2)} in string "${worst}…"`,
-  };
+  if (maxEntropy >= 4.5) {
+    return {
+      name: 'high-entropy-string',
+      score: 6,
+      detail: `Entropy ${maxEntropy.toFixed(2)} in string "${worst}…"`,
+    };
+  }
+
+  // Concatenation chain: many small string literals joined with `+`.
+  // Captures payloads split into <50-char chunks to dodge the per-literal entropy check.
+  // We measure the entropy of the *aggregated* literals.
+  const concatChainRe = /(?:['"`][^'"`\n]{0,40}['"`]\s*\+\s*){5,}['"`][^'"`\n]{0,40}['"`]/g;
+  let m;
+  let bestChain = '';
+  while ((m = concatChainRe.exec(code)) !== null) {
+    const literals = m[0].match(/['"`]([^'"`\n]{0,40})['"`]/g) || [];
+    const joined = literals.map(l => l.slice(1, -1)).join('');
+    if (joined.length >= 40) {
+      const e = shannonEntropy(joined);
+      if (e > maxEntropy) { maxEntropy = e; bestChain = joined.slice(0, 40); }
+    }
+  }
+
+  if (maxEntropy >= 4.5) {
+    return {
+      name: 'high-entropy-string',
+      score: 6,
+      detail: `Entropy ${maxEntropy.toFixed(2)} in concatenated literals "${bestChain}…"`,
+    };
+  }
+
+  return null;
 }
 
 /**
- * Detect dense hex escape sequences (\x41).
- * Score scales with volume.
+ * Detect dense \xNN and \uXXXX escape sequences.
+ * Score scales with volume; \u and \x are summed.
  * @param {string} code
  * @returns {Finding|null}
  */
 function checkHexEscapes(code) {
-  const hexMatches = (code.match(/\\x[0-9a-fA-F]{2}/g) || []).length;
-  if (hexMatches < 10) return null;
+  const hexMatches     = (code.match(/\\x[0-9a-fA-F]{2}/g) || []).length;
+  const unicodeMatches = (code.match(/\\u[0-9a-fA-F]{4}/g) || []).length
+                       + (code.match(/\\u\{[0-9a-fA-F]+\}/g) || []).length;
+  const total = hexMatches + unicodeMatches;
+  if (total < 10) return null;
   // Scale: 10-50 = 5, 51-200 = 15, 201-1000 = 30, 1000+ = 50
   let score = 5;
-  if (hexMatches > 1000) score = 50;
-  else if (hexMatches > 200) score = 30;
-  else if (hexMatches > 50) score = 15;
-  return { name: 'hex-escape-density', score, detail: `${hexMatches} \\xNN hex escapes found` };
+  if (total > 1000) score = 50;
+  else if (total > 200) score = 30;
+  else if (total > 50) score = 15;
+  const detail = unicodeMatches > 0
+    ? `${hexMatches} \\xNN + ${unicodeMatches} \\uXXXX escapes found`
+    : `${hexMatches} \\xNN hex escapes found`;
+  return { name: 'hex-escape-density', score, detail };
 }
 
 /**
- * Detect String.fromCharCode with many numeric arguments.
+ * Detect String.fromCharCode (and its aliases) with many numeric arguments,
+ * and large arrays of character codes that are typically reassembled into strings.
  * @param {string} code
  * @returns {Finding|null}
  */
 function checkFromCharCode(code) {
-  const re = /String\.fromCharCode\s*\(([^)]+)\)/g;
-  let match;
+  // Direct (or property-access) call: String.fromCharCode(...) or anyObj.fromCharCode(...)
   let maxArgs = 0;
-  while ((match = re.exec(code)) !== null) {
+  const direct = /(?:String|[\w$]+)\.fromCharCode\s*\(([^)]+)\)/g;
+  let match;
+  while ((match = direct.exec(code)) !== null) {
     const args = match[1].split(',').filter(a => /^\s*\d+\s*$/.test(a));
     if (args.length > maxArgs) maxArgs = args.length;
   }
-  if (maxArgs < 5) return null;
-  return { name: 'fromCharCode', score: 7, detail: `String.fromCharCode with ${maxArgs} numeric args` };
+
+  // Decimal char-code arrays of length >= 8 that look like ASCII text
+  // e.g. [101,118,97,108] -> "eval"
+  const arrRe = /\[\s*((?:\d{1,3}\s*,\s*){7,}\d{1,3})\s*\]/g;
+  let arrMatch;
+  let maxArr = 0;
+  while ((arrMatch = arrRe.exec(code)) !== null) {
+    const nums = arrMatch[1].split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => !Number.isNaN(n));
+    // ASCII printable range — typical for char-code payloads
+    const printable = nums.filter(n => n >= 32 && n <= 126).length;
+    if (printable / nums.length >= 0.9 && nums.length > maxArr) maxArr = nums.length;
+  }
+
+  if (maxArgs >= 5) {
+    return { name: 'fromCharCode', score: 7, detail: `fromCharCode with ${maxArgs} numeric args` };
+  }
+  if (maxArr >= 16) {
+    // Treat large printable-ascii decimal arrays as equivalent to fromCharCode obfuscation
+    return { name: 'fromCharCode', score: 7, detail: `decimal char-code array of length ${maxArr}` };
+  }
+  return null;
 }
 
 /**
- * Detect base64 decode combined with eval-like execution.
+ * Detect base64 / hex decoding combined with eval-like execution.
  * @param {string} code
  * @returns {Finding|null}
  */
 function checkBase64Exec(code) {
   const hasBase64 = /atob\s*\(|Buffer\.from\s*\([^)]*,\s*['"]base64['"]\)/.test(code);
-  const hasExec   = /eval\s*\(|new\s+Function\s*\(|\.exec\s*\(/.test(code);
-  if (!hasBase64) return null;
-  if (hasBase64 && !hasExec) {
-    return { name: 'base64-decode', score: 3, detail: 'Base64 decode found — verify usage' };
+  const hasHexDecode = /Buffer\.from\s*\([^)]*,\s*['"]hex['"]\)/.test(code);
+  const hasExec   = /\beval\s*\(|new\s+Function\s*\(|\.exec\s*\(|\(\s*0\s*,\s*eval\s*\)\s*\(/.test(code);
+  if (!hasBase64 && !hasHexDecode) return null;
+  if (!hasExec) {
+    const kind = hasBase64 ? 'Base64' : 'Hex';
+    return { name: 'encoded-decode', score: 3, detail: `${kind} decode found — verify usage` };
   }
-  return { name: 'base64-decode+exec', score: 8, detail: 'Base64 decode with code execution found' };
+  const kind = hasBase64 ? 'Base64' : 'Hex';
+  return { name: 'encoded-decode+exec', score: 8, detail: `${kind} decode with code execution found` };
 }
 
 /**
- * Detect child_process / shell execution patterns.
+ * Detect child_process / shell execution patterns, including string-concatenated
+ * `require('child' + '_process')` and access via require.call etc.
  * @param {string} code
  * @returns {Finding|null}
  */
 function checkChildProcess(code) {
   const patterns = [
     /require\s*\(\s*['"]child_process['"]\s*\)/,
+    // node:-prefixed import
+    /require\s*\(\s*['"]node:child_process['"]\s*\)/,
+    // String-concatenation bypass: require('child'+'_process'), require(\`child${''}_process\`)
+    /require\s*\(\s*['"`][^'"`]*['"`](?:\s*\+\s*['"`][^'"`]*['"`])+\s*\)/,
+    // Dynamic require with computed key — flag for review
+    /require\s*\(\s*[a-zA-Z_$][\w$]*\s*\[/,
     /\bexec\s*\(/,
     /\bspawn\s*\(/,
     /\bexecSync\s*\(/,
     /\bspawnSync\s*\(/,
     /\bexecFile\s*\(/,
+    /\bexecFileSync\s*\(/,
+    /\bfork\s*\(/,
+    // Worker threads can host eval-equivalent execution
+    /require\s*\(\s*['"]worker_threads['"]\s*\)/,
+    /new\s+Worker\s*\(/,
   ];
   const matched = patterns.filter(p => p.test(code));
   if (matched.length === 0) return null;
-  return { name: 'child-process', score: 5, detail: `Shell execution found (${matched.length} pattern(s))` };
+  return { name: 'child-process', score: 5, detail: `Shell/process execution found (${matched.length} pattern(s))` };
 }
 
 /**
@@ -192,13 +276,66 @@ function checkNetworkCalls(code) {
     /require\s*\(\s*['"]https?['"]\s*\)/,
     /require\s*\(\s*['"]net['"]\s*\)/,
     /require\s*\(\s*['"]dns['"]\s*\)/,
-    /fetch\s*\(/,
+    /require\s*\(\s*['"]tls['"]\s*\)/,
+    /require\s*\(\s*['"]dgram['"]\s*\)/,
+    /require\s*\(\s*['"]http2['"]\s*\)/,
+    /\bfetch\s*\(/,
     /XMLHttpRequest/,
     /\.request\s*\(/,
+    // node:-prefixed imports (Node 16+)
+    /require\s*\(\s*['"]node:(?:https?|net|dns|tls|dgram|http2)['"]\s*\)/,
+    // Dynamic import of these modules
+    /import\s*\(\s*['"](?:node:)?(?:https?|net|dns|tls|dgram|http2)['"]\s*\)/,
   ];
   const matched = patterns.filter(p => p.test(code));
   if (matched.length === 0) return null;
   return { name: 'network-call', score: 4, detail: `Network call found (${matched.length} pattern(s))` };
+}
+
+/**
+ * Detect filesystem manipulation (potential backdoor installation).
+ * @param {string} code
+ * @returns {Finding|null}
+ */
+function checkFilesystemManipulation(code) {
+  const writePatterns = [
+    /fs\.write(?:File)?(?:Sync)?\s*\(/,
+    /fs\.append(?:File)?(?:Sync)?\s*\(/,
+    /fs\.create(?:WriteStream)?\s*\(/,
+    /\.pipe\s*\(/,
+  ];
+  const permissionPatterns = [
+    /fs\.chmod(?:Sync)?\s*\(/,
+    /fs\.chown(?:Sync)?\s*\(/,
+    /fs\.access(?:Sync)?\s*\(/,
+  ];
+  const linkPatterns = [
+    /fs\.symlink(?:Sync)?\s*\(/,
+    /fs\.link(?:Sync)?\s*\(/,
+  ];
+
+  const writeMatches = writePatterns.filter(p => p.test(code)).length;
+  const permMatches = permissionPatterns.filter(p => p.test(code)).length;
+  const linkMatches = linkPatterns.filter(p => p.test(code)).length;
+
+  if (writeMatches === 0 && permMatches === 0 && linkMatches === 0) return null;
+
+  const details = [];
+  if (writeMatches > 0) details.push(`${writeMatches} write operation(s)`);
+  if (permMatches > 0) details.push(`${permMatches} permission change(s)`);
+  if (linkMatches > 0) details.push(`${linkMatches} symlink operation(s)`);
+
+  // Score 3-4 based on variety of operations
+  let score = 3;
+  if ((writeMatches > 0 ? 1 : 0) + (permMatches > 0 ? 1 : 0) + (linkMatches > 0 ? 1 : 0) >= 2) {
+    score = 4;
+  }
+
+  return {
+    name: 'filesystem-manipulation',
+    score,
+    detail: details.join(', ')
+  };
 }
 
 // ─── Entropy helper ──────────────────────────────────────────────────────────
@@ -228,11 +365,13 @@ const CHECKS = [
   checkHexArray,
   checkProcessEnv,
   checkNetworkCalls,
+  checkFilesystemManipulation,
 ];
 
 /**
  * Run all checks against a code string.
- * For large files, analyzes multiple chunks and aggregates results.
+ * For large files, uses a sliding window (50% overlap) so payloads cannot
+ * hide in the gaps between fixed start/middle/end chunks.
  * @param {string} code
  * @param {object} config  { blockScore, warnScore }
  * @returns {{ score: number, findings: Finding[], verdict: 'BLOCK'|'WARN'|'OK' }}
@@ -242,14 +381,18 @@ function detectObfuscation(code, config = { blockScore: 50, warnScore: 20 }) {
     return { score: 0, findings: [], verdict: 'OK' };
   }
 
-  // For large files, analyze chunks and take worst results
+  // For large files, slide a window across the entire content. With a 500KB
+  // window and 250KB stride, every byte appears in at least one window — so a
+  // payload at any offset is guaranteed to be analyzed in a single contiguous
+  // chunk.
   const chunks = [];
   if (code.length > MAX_CODE_SIZE) {
-    // Analyze start, middle, and end chunks
-    chunks.push(code.slice(0, MAX_CODE_SIZE));
-    const mid = Math.floor(code.length / 2) - Math.floor(MAX_CODE_SIZE / 2);
-    chunks.push(code.slice(mid, mid + MAX_CODE_SIZE));
-    chunks.push(code.slice(-MAX_CODE_SIZE));
+    let start = 0;
+    while (start < code.length) {
+      chunks.push(code.slice(start, start + MAX_CODE_SIZE));
+      if (start + MAX_CODE_SIZE >= code.length) break;
+      start += CHUNK_STRIDE;
+    }
   } else {
     chunks.push(code);
   }
@@ -297,4 +440,5 @@ module.exports = {
   checkHexArray,
   checkProcessEnv,
   checkNetworkCalls,
+  checkFilesystemManipulation,
 };

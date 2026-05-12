@@ -12,12 +12,17 @@ const UNIT_TESTS = [
   'unit/tarball.test.js',
   'unit/lockfile.test.js',
   'unit/config.test.js',
+  'unit/command.test.js',
+  'unit/requireWalker.test.js',
 ];
 
 const E2E_TESTS = [
   'e2e/install.test.js',
   'e2e/config.test.js',
   'e2e/review.test.js',
+  'e2e/command-coverage.test.js',
+  'e2e/require-following.test.js',
+  'e2e/scan-self.test.js',
 ];
 
 let failed = 0;
