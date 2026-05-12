@@ -19,10 +19,13 @@ function withTmpDir(fn) {
 }
 
 function runCLI(args, cwd, env = {}) {
+  const homeEnv = env.HOME
+    ? { HOME: env.HOME, USERPROFILE: env.HOME }
+    : {};
   return spawnSync(process.execPath, [CLI, ...args], {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1', HOME: env.HOME || os.homedir(), ...env },
+    env: { ...process.env, NO_COLOR: '1', ...homeEnv, ...env },
   });
 }
 
