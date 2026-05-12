@@ -120,4 +120,61 @@ function buildTarGz(files) {
   assert.ok(result.every(b => b === 0x41), 'large file content correct');
 }
 
+// ─── Tarball bomb protection (maxSize) ──────────────────────────────────────
+
+// Tarball within size limit passes
+{
+  const content = Buffer.alloc(1000, 0x42);
+  const gz = buildTarGz([{ name: 'package/index.js', content }]);
+  const files = parseTarGz(gz, 2000); // 2KB limit
+  assert.ok(files.has('package/index.js'), 'tarball within limit parses ok');
+}
+
+// Single large file exceeding limit throws
+{
+  const content = Buffer.alloc(10000, 0x43); // 10KB file
+  const gz = buildTarGz([{ name: 'package/big.js', content }]);
+  assert.throws(
+    () => parseTarGz(gz, 5000), // 5KB limit
+    /exceeds limit/,
+    'single oversized file throws'
+  );
+}
+
+// Multiple files exceeding cumulative limit throws
+{
+  const file1 = Buffer.alloc(3000, 0x44);
+  const file2 = Buffer.alloc(3000, 0x45);
+  const file3 = Buffer.alloc(3000, 0x46);
+  const gz = buildTarGz([
+    { name: 'package/a.js', content: file1 },
+    { name: 'package/b.js', content: file2 },
+    { name: 'package/c.js', content: file3 },
+  ]);
+  assert.throws(
+    () => parseTarGz(gz, 7000), // 7KB limit, total is 9KB
+    /exceeds limit/,
+    'cumulative size exceeding limit throws'
+  );
+}
+
+// No limit (null) allows any size
+{
+  const content = Buffer.alloc(50000, 0x47);
+  const gz = buildTarGz([{ name: 'package/huge.js', content }]);
+  const files = parseTarGz(gz, null);
+  assert.ok(files.has('package/huge.js'), 'null limit allows any size');
+}
+
+// Zero-size limit blocks everything
+{
+  const content = Buffer.alloc(100, 0x48);
+  const gz = buildTarGz([{ name: 'package/tiny.js', content }]);
+  assert.throws(
+    () => parseTarGz(gz, 0),
+    /exceeds limit/,
+    'zero limit blocks all files'
+  );
+}
+
 console.log('  tarball.test.js: all tests passed');

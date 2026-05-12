@@ -246,8 +246,18 @@ async function scanPackage(pkg, cwd, config, verbose) {
 
     let files;
     try {
-      files = parseTarGz(tarBuffer);
+      files = parseTarGz(tarBuffer, config.maxTarballSize);
     } catch (err) {
+      if (err.message.includes('exceeds limit')) {
+        // Tarball too large - return a special result indicating oversized tarball
+        return {
+          pkg,
+          scripts: [],
+          score: 0,
+          findings: [{ name: 'oversized-tarball', score: 0, detail: err.message }],
+          verdict: 'OK'
+        };
+      }
       output.warn(`Could not parse tarball for ${pkg.name}@${pkg.version}: ${err.message}`);
       return null;
     }
