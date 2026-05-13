@@ -1,6 +1,7 @@
 'use strict';
 
 const { loadConfig, DEFAULT_CONFIG } = require('./utils/config');
+const { checkForUpdate } = require('./utils/updateChecker');
 const commands = require('./commands');
 const output = require('./utils/output');
 
@@ -109,7 +110,20 @@ async function main() {
     process.exit(1);
   }
 
+  // Fire update check only for scan/install/ci commands (non-blocking)
+  const UPDATE_COMMANDS = ['scan', 's', 'install', 'i', 'ci'];
+  const updatePromise = (UPDATE_COMMANDS.includes(command) && !flags.json && !config.silent)
+    ? checkForUpdate(config, VERSION)
+    : Promise.resolve(null);
+
   await cmd.run({ args, rawArgs, flags, config, cwd });
+
+  // Print update notice after command output
+  const latestVersion = await updatePromise;
+  if (latestVersion) {
+    output.log('');
+    output.log(output.dim(`  Update available: ${VERSION} → ${latestVersion} — run "npm i -g np-audit" to update`));
+  }
 }
 
 main().catch(err => {
