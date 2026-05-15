@@ -54,7 +54,8 @@ async function scan(opts) {
       const resolved = await resolveSinglePackage(pkg, config);
       // Mark the first package (the explicitly requested one) as explicit
       if (resolved.length > 0) {
-        const pkgName = pkg.includes('@') && !pkg.startsWith('@') ? pkg.split('@')[0] : pkg;
+        const lastAt = pkg.lastIndexOf('@');
+        const pkgName = lastAt > 0 ? pkg.slice(0, lastAt) : pkg;
         explicitPackageNames.add(pkgName);
       }
       allPackages.push(...resolved);
@@ -585,7 +586,8 @@ async function resolveFromPackageJson(cwd, config, noDev) {
     if (!version) continue;
 
     try {
-      const meta = await fetchJSON(`${config.registry}/${encodeURIComponent(name)}`, { timeout: config.timeout });
+      const encodedName = name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : encodeURIComponent(name);
+      const meta = await fetchJSON(`${config.registry}/${encodedName}`, { timeout: config.timeout });
       const versionData = meta.versions && meta.versions[version];
       if (!versionData) continue;
 
@@ -616,14 +618,21 @@ async function resolveFromPackageJson(cwd, config, noDev) {
  * @returns {Promise<PackageDescriptor[]>}
  */
 async function resolveSinglePackage(packageSpec, config) {
-  const [name, version] = packageSpec.includes('@') && !packageSpec.startsWith('@')
-    ? packageSpec.split('@')
-    : [packageSpec, 'latest'];
+  let name, version;
+  const lastAt = packageSpec.lastIndexOf('@');
+  if (lastAt > 0) {
+    name = packageSpec.slice(0, lastAt);
+    version = packageSpec.slice(lastAt + 1);
+  } else {
+    name = packageSpec;
+    version = 'latest';
+  }
 
   const { fetchJSON } = require('../utils/fetcher');
   let meta;
   try {
-    meta = await fetchJSON(`${config.registry}/${encodeURIComponent(name)}`, { timeout: config.timeout });
+    const encodedName = name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : encodeURIComponent(name);
+    meta = await fetchJSON(`${config.registry}/${encodedName}`, { timeout: config.timeout });
   } catch (err) {
     throw new Error(`Could not fetch registry metadata for "${name}": ${err.message}`);
   }
