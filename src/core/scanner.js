@@ -8,6 +8,7 @@ const { parseTarGz, extractFile, getPackageJson }        = require('../utils/tar
 const { detectObfuscation }            = require('./detector');
 const { walkRequires, MAX_FILES_PER_PACKAGE, MAX_TOTAL_BYTES } = require('./requireWalker');
 const { parseCommand }                 = require('../utils/command');
+const { getPackageMarshallers }        = require('../marshallers');
 const output                           = require('../utils/output');
 
 // Lifecycle scripts that npm executes during install. The original tool only
@@ -73,10 +74,7 @@ async function scan(opts) {
     }
   }
 
-  // Track packages without install scripts (for skipped count)
-  let skippedCount = 0;
-
-  // Apply skip filters
+  // Apply user skip filters (scopes, packages, dev)
   packages = packages.filter(pkg => {
     if (noDev && pkg.dev) return false;
     if (pkg.inBundle || pkg.link) return false;
@@ -86,15 +84,15 @@ async function scan(opts) {
         if (pkg.name.startsWith(scope + '/') || pkg.name === scope) return false;
       }
     }
-    // For explicit packages, always include them but track if they have no scripts
-    if (explicitPackageNames.has(pkg.name)) {
-      if (!pkg.hasInstallScript) {
-        skippedCount++;
-        return false;
-      }
-      return true;
-    }
-    // v2/v3 lockfiles reliably report hasInstallScript — skip definitive negatives
+    return true;
+  });
+
+  // All non-skipped packages are eligible for package-level marshallers (CVE)
+  const allPackages = packages;
+
+  // Filter to only packages with lifecycle scripts for code analysis
+  packages = packages.filter(pkg => {
+    if (explicitPackageNames.has(pkg.name)) return true;
     if (lockfileVersion >= 2 && pkg.hasInstallScript === false) return false;
     return true;
   });
@@ -106,23 +104,48 @@ async function scan(opts) {
     return scanPackage(pkg, cwd, config, verbose);
   });
 
-  const scanned = results.filter(Boolean);
-  // Add packages that returned null from scanPackage (no scripts found during scan)
-  skippedCount += results.filter(r => r === null).length;
+  // Run package-level marshallers (CVE checks) on ALL packages, not just those with scripts
+  if (config.checkVulnerabilities) {
+    const packageMarshallers = getPackageMarshallers();
+    const cveResults = await mapWithConcurrency(allPackages, config.parallelFetches, async (pkg) => {
+      for (const marshaller of packageMarshallers) {
+        const finding = await marshaller.checkPackage(pkg, config);
+        if (finding) return { pkg, finding };
+      }
+      return null;
+    });
 
-  // Optionally scan the *current project's own* lifecycle scripts. This is
-  // off by default to avoid surprising users — `npa` is a drop-in replacement
-  // for `npm install` and most projects' own postinstall scripts are
-  // intentionally local. Set `scanSelf: true` in .npmauditor.json (or pass
-  // --scan-self) to opt in. Useful for CI on third-party PRs.
+    for (const cveResult of cveResults) {
+      if (!cveResult) continue;
+      const { pkg, finding } = cveResult;
+      const existing = results.find(r => r && r.pkg && r.pkg.name === pkg.name);
+      if (existing) {
+        existing.findings.push(finding);
+        if (finding.score > existing.score) {
+          existing.score = finding.score;
+          existing.verdict = verdictFromScore(finding.score, config);
+        }
+      } else {
+        results.push({
+          pkg,
+          scripts: [],
+          score: finding.score,
+          findings: [finding],
+          verdict: verdictFromScore(finding.score, config),
+        });
+      }
+    }
+  }
+
+  const scanned = results.filter(Boolean);
+
+  // Optionally scan the *current project's own* lifecycle scripts.
   if (config.scanSelf) {
     const selfResult = scanCwdProject(cwd, config);
     if (selfResult) scanned.unshift(selfResult);
-    else skippedCount++;
   }
 
-  // Attach metadata to results array
-  scanned.skippedCount = skippedCount;
+  scanned.totalPackages = allPackages.length;
   return scanned;
 }
 
@@ -647,24 +670,55 @@ async function resolveSinglePackage(packageSpec, config) {
   const packages = [];
   const seen = new Set();
 
-  function collectDeps(deps) {
-    for (const [depName, range] of Object.entries(deps || {})) {
-      if (seen.has(depName)) continue;
-      seen.add(depName);
-      // Extract the first clean semver from the range (e.g. "4.22.1 || ^5" → "4.22.1", "^5.1.0" → "5.1.0")
+  async function collectDeps(deps, recurse) {
+    const queue = Object.entries(deps || {}).filter(([depName]) => !seen.has(depName));
+    // Mark all as seen first to avoid duplicate fetches
+    for (const [depName] of queue) seen.add(depName);
+
+    const resolutions = await mapWithConcurrency(queue, config.parallelFetches, async ([depName, range]) => {
       const exactVersion = extractSemver(range);
-      if (!exactVersion) continue; // skip unresolvable ranges — lockfile scan will cover them
-      packages.push({
-        name:             depName,
-        version:          exactVersion,
-        resolved:         buildTarballUrl(depName, exactVersion, config.registry),
-        integrity:        '',
-        hasInstallScript: false,
-        dev:              false,
-        optional:         false,
-        inBundle:         false,
-        link:             false,
-      });
+      if (!exactVersion) return null;
+
+      let depScripts = false;
+      let depDeps = null;
+      let depTarball = buildTarballUrl(depName, exactVersion, config.registry);
+      let depIntegrity = '';
+
+      try {
+        const encodedDep = depName.startsWith('@') ? `@${encodeURIComponent(depName.slice(1))}` : encodeURIComponent(depName);
+        const depMeta = await fetchJSON(`${config.registry}/${encodedDep}`, { timeout: config.timeout });
+        const depData = depMeta.versions && depMeta.versions[exactVersion];
+        if (depData) {
+          depScripts = !!(depData.scripts &&
+            (depData.scripts.preinstall || depData.scripts.postinstall || depData.scripts.install));
+          depTarball = depData.dist && depData.dist.tarball || depTarball;
+          depIntegrity = depData.dist && depData.dist.integrity || '';
+          depDeps = depData.dependencies;
+        }
+      } catch {
+        // Failed to fetch dep metadata — add with what we have
+      }
+
+      return {
+        pkg: {
+          name:             depName,
+          version:          exactVersion,
+          resolved:         depTarball,
+          integrity:        depIntegrity,
+          hasInstallScript: depScripts,
+          dev:              false,
+          optional:         false,
+          inBundle:         false,
+          link:             false,
+        },
+        depDeps,
+      };
+    });
+
+    for (const r of resolutions) {
+      if (!r) continue;
+      packages.push(r.pkg);
+      if (recurse && r.depDeps) await collectDeps(r.depDeps, true);
     }
   }
 
@@ -682,7 +736,8 @@ async function resolveSinglePackage(packageSpec, config) {
     link: false,
   });
 
-  collectDeps(versionData.dependencies);
+  seen.add(name);
+  await collectDeps(versionData.dependencies, !!config.deepResolve);
 
   return packages;
 }

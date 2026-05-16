@@ -29,10 +29,12 @@ function cyan(text) { return c(CYAN, text); }
 function white(text) { return c(WHITE, text); }
 
 function error(msg) {
+  if (process.stderr.isTTY) process.stderr.write('\r\x1b[2K');
   process.stderr.write(red(`✖ ${msg}`) + '\n');
 }
 
 function warn(msg) {
+  if (process.stderr.isTTY) process.stderr.write('\r\x1b[2K');
   process.stderr.write(yellow(`⚠ ${msg}`) + '\n');
 }
 
@@ -67,9 +69,14 @@ const ASCII_LOGO = `
 
 function printScanHeader(silent = false) {
   if (silent) return;
-  log(blue(ASCII_LOGO));
-  log(dim('  npm package auditor — static obfuscation detection'));
+  log('');
   log(dim('─'.repeat(60)));
+  log('');
+}
+
+function printLogo(version) {
+  log(blue(ASCII_LOGO));
+  log(dim(`  npm package auditor v${version}`));
   log('');
 }
 
@@ -86,22 +93,45 @@ function printPackageResult(pkg, result) {
 function printSummary(results) {
   const blocked = results.filter(r => r.verdict === 'BLOCK').length;
   const warned  = results.filter(r => r.verdict === 'WARN').length;
-  const ok      = results.filter(r => r.verdict === 'OK').length;
-  const skipped = results.skippedCount || 0;
+  const total   = results.totalPackages || results.length;
+  const ok      = total - blocked - warned;
 
   log('');
   log(dim('─'.repeat(60)));
-  let summary = `  ${green(String(ok))} clean   ${yellow(String(warned))} warnings   ${red(String(blocked))} blocked`;
-  if (skipped > 0) {
-    summary += `   ${dim(String(skipped) + ' skipped (no install scripts)')}`;
-  }
-  log(summary);
+  log(`  ${green(String(ok))} clean   ${yellow(String(warned))} warnings   ${red(String(blocked))} blocked`);
   log('');
+}
+
+const SPINNER_FRAMES = ['▉', '▊', '▋', '▌', '▍', '▎', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+
+function createSpinner(message) {
+  if (NO_COLOR || !process.stderr.isTTY) {
+    return { start() {}, stop() {} };
+  }
+  let i = 0;
+  let timer = null;
+  const clear = () => process.stderr.write('\r\x1b[2K');
+  return {
+    start() {
+      process.stderr.write(`\x1b[?25l`);
+      process.stderr.write(`  ${cyan(SPINNER_FRAMES[0])} ${white(message)}`);
+      timer = setInterval(() => {
+        i = (i + 1) % SPINNER_FRAMES.length;
+        process.stderr.write(`\r\x1b[2K  ${cyan(SPINNER_FRAMES[i])} ${white(message)}`);
+      }, 60);
+    },
+    stop() {
+      if (timer) clearInterval(timer);
+      clear();
+      process.stderr.write(`\x1b[?25h`);
+    },
+  };
 }
 
 module.exports = {
   bold, dim, red, green, yellow, blue, cyan, white,
   error, warn, info, success, log,
   verdictBadge, printScanHeader, printPackageResult, printSummary,
+  printLogo, createSpinner,
   RESET, BOLD, DIM, RED, GREEN, YELLOW, BLUE, CYAN,
 };

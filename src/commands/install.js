@@ -33,6 +33,8 @@ module.exports = {
   async run({ args, flags, config, cwd }) {
     const packages = args.filter(a => !a.startsWith('-'));
 
+    const spinner = !flags.json && !config.silent ? output.createSpinner('Auditing packages...') : null;
+    if (spinner) spinner.start();
     const results = await scan({
       cwd,
       config,
@@ -40,6 +42,7 @@ module.exports = {
       verbose:       flags.verbose,
       packages:      packages.length > 0 ? packages : null,
     });
+    if (spinner) spinner.stop();
 
     const hasIssues = results.some(r => r.verdict !== 'OK');
     const silent = config.silent && !hasIssues;
@@ -55,7 +58,7 @@ module.exports = {
     const blocked = results.filter(r => r.verdict === 'BLOCK');
 
     if (blocked.length > 0 && !flags.review) {
-      output.error(`${blocked.length} package(s) blocked due to obfuscated install scripts.`);
+      output.error(`${blocked.length} package(s) blocked — suspicious or malicious packages detected.`);
       output.log(output.dim('  Run with --review to interactively decide which scripts to allow.'));
       process.exit(1);
     }
@@ -81,7 +84,7 @@ module.exports = {
 function printResults(results, silent = false) {
   if (silent) return;
   if (results.length === 0) {
-    output.success('No packages with install scripts found.');
+    output.success('No issues found.');
     return;
   }
   for (const r of results) {

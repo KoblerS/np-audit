@@ -17,7 +17,7 @@ function buildMainHelp() {
 
   return `
   npa — npm package auditor ${VERSION}
-  Statically detects obfuscated code in npm install scripts.
+  Static security analysis for npm packages.
 
   Usage:
 ${lines.join('\n')}
@@ -100,14 +100,29 @@ async function main() {
   }
 
   if (flags.help || !command) {
+    output.printLogo(VERSION);
     process.stdout.write(buildMainHelp() + '\n');
     return;
   }
 
   const cmd = commands.get(command);
   if (!cmd) {
-    output.error(`Unknown command: "${command}". Run npa --help for usage.`);
-    process.exit(1);
+    // Forward unknown commands to npm (allows `alias npm='npa'`)
+    const { spawnSync } = require('child_process');
+    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const result = spawnSync(npmCmd, process.argv.slice(2), {
+      stdio: 'inherit',
+      cwd,
+    });
+    process.exit(result.status || 0);
+    return;
+  }
+
+  // Deprecation notice for old shell hook
+  if (process.env.NPA_RUNNING && !flags.json && !config.silent) {
+    output.warn('Deprecated: The old npa shell hook is no longer needed.');
+    output.log(output.dim('  Run: npa alias --install   to upgrade to the simpler alias.'));
+    output.log('');
   }
 
   // Fire update check only for scan/install/ci commands (non-blocking)

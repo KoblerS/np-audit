@@ -15,6 +15,7 @@ const UNIT_TESTS = [
   'unit/command.test.js',
   'unit/requireWalker.test.js',
   'unit/updateChecker.test.js',
+  'unit/cve.test.js',
 ];
 
 const E2E_TESTS = [

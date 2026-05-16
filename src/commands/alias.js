@@ -6,10 +6,10 @@ const os = require('os');
 const output = require('../utils/output');
 
 const BASH_HOOK = `# npa npm hook
-npm() { [[ -n "$NPA_RUNNING" ]] && { command npm "$@"; return; }; case "$1" in scan) npa scan "\${@:2}"; return;; install|i|add) command -v npa >/dev/null && { local pkgs=(); for a in "\${@:2}"; do [[ "$a" != -* ]] && pkgs+=("$a"); done; if [[ \${#pkgs[@]} -gt 0 ]]; then npa scan "\${pkgs[@]}" || { echo "[npa] Blocked. Use 'npa install --review'"; return 1; }; else npa scan || { echo "[npa] Blocked. Use 'npa install --review'"; return 1; }; fi; };; ci) command -v npa >/dev/null && { npa scan || { echo "[npa] Blocked. Use 'npa ci --review'"; return 1; }; };; esac; command npm "$@"; }`;
+alias npm='npa'`;
 
 const POWERSHELL_HOOK = `# npa npm hook
-function npm { if($env:NPA_RUNNING){& npm.cmd @args;return}; if($args[0] -eq 'scan'){& npa scan @($args|Select-Object -Skip 1);return}; if($args[0] -in @('install','i','add')){$pkgs=@($args|Where-Object{$_ -notmatch '^-'}|Select-Object -Skip 1); if($pkgs.Count -gt 0){& npa scan @pkgs; if($LASTEXITCODE -ne 0){Write-Host "[npa] Blocked.";return 1}}else{& npa scan; if($LASTEXITCODE -ne 0){Write-Host "[npa] Blocked.";return 1}}}; if($args[0] -eq 'ci'){& npa scan; if($LASTEXITCODE -ne 0){Write-Host "[npa] Blocked.";return 1}}; & npm.cmd @args }`;
+Set-Alias -Name npm -Value npa`;
 
 module.exports = {
   name: 'alias',
@@ -18,20 +18,21 @@ module.exports = {
 
   help() {
     return `
-  npa alias — Shell hook to auto-scan before npm install/ci
+  npa alias — Shell alias to use npa as an npm drop-in replacement
 
   Usage:
-    npa alias                Print the shell hook
-    npa alias --install      Add hook to shell profile (~/.zshrc or ~/.bashrc)
-    npa alias --uninstall    Remove hook from shell profile
+    npa alias                Print the shell alias
+    npa alias --install      Add alias to shell profile (~/.zshrc or ~/.bashrc)
+    npa alias --uninstall    Remove alias from shell profile
 
-  The hook intercepts npm install/ci/add commands and runs npa scan first.
-  If issues are found, the install is blocked until resolved.
+  With the alias active, all npm commands pass through npa.
+  Install/ci/add commands are scanned before execution.
+  All other commands (run, test, publish, etc.) forward directly to npm.
 
   Examples:
-    npa alias                     Print hook for manual installation
+    npa alias                     Print alias for manual installation
     npa alias --install           Auto-install to detected shell
-    eval "$(npa alias)"           Load hook in current session only
+    eval "$(npa alias)"           Load alias in current session only
 `;
   },
 
@@ -86,7 +87,9 @@ function doUninstall(profilePath) {
     return;
   }
 
-  const cleaned = content.replace(/\n*# npa npm hook\nnpm\(\)[^\n]+\n*/g, '\n');
+  // Remove all known hook formats (old function, new alias)
+  const cleaned = content
+    .replace(/\n*# npa npm hook\n(?:npm\(\) \{[\s\S]*?\n\}|npm\(\)[^\n]+|alias npm='npa'|Set-Alias[^\n]*)\n*/g, '\n');
   fs.writeFileSync(profilePath, cleaned);
   output.success(`Removed npa hook from ${profilePath}`);
   output.log(output.dim('  Run: source ' + profilePath + ' (or restart your terminal)'));
@@ -100,6 +103,22 @@ function doInstall(hook, profilePath) {
   }
 
   const content = fs.existsSync(profilePath) ? fs.readFileSync(profilePath, 'utf8') : '';
+
+  // Migrate from old format (function or multi-line) to new alias
+  const hasOldHook = content.includes('# npa npm hook') && !content.includes("alias npm='npa'");
+  if (hasOldHook) {
+    output.warn('Deprecated: The old npm() shell function hook is no longer needed.');
+    output.log(output.dim('  npa now forwards unknown commands to npm directly.'));
+    output.log(output.dim('  Replacing with: alias npm=\'npa\''));
+    output.log('');
+    const migrated = content
+      .replace(/\n*# npa npm hook\n(?:npm\(\) \{[\s\S]*?\n\}|npm\(\)[^\n]+)\n*/g, '\n\n' + hook + '\n');
+    fs.writeFileSync(profilePath, migrated);
+    output.success(`Migrated npa hook to new format in ${profilePath}`);
+    output.log(output.dim('  Run: source ' + profilePath + ' (or restart your terminal)'));
+    return;
+  }
+
   if (content.includes('# npa npm hook')) {
     output.warn('npa hook already installed in ' + profilePath);
     return;
