@@ -1,5 +1,7 @@
 'use strict';
 
+const { shannonEntropy } = require('../utils/entropy');
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_CODE_SIZE = 500000; // 500KB - chunk larger files
@@ -338,19 +340,7 @@ function checkFilesystemManipulation(code) {
   };
 }
 
-// ─── Entropy helper ──────────────────────────────────────────────────────────
-
-function shannonEntropy(str) {
-  if (!str || str.length === 0) return 0;
-  const freq = {};
-  for (const ch of str) freq[ch] = (freq[ch] || 0) + 1;
-  let entropy = 0;
-  for (const count of Object.values(freq)) {
-    const p = count / str.length;
-    entropy -= p * Math.log2(p);
-  }
-  return entropy;
-}
+// ─── Entropy helper (re-exported from utils/entropy.js) ─────────────────────
 
 // ─── Main detection function ─────────────────────────────────────────────────
 

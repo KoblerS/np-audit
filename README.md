@@ -8,7 +8,7 @@
 
 # np-audit — npm package auditor
 
-Statically detect obfuscated code in npm `preinstall`/`postinstall` scripts **before** they run. Drop-in replacement for `npm install` and `npm ci`.
+Static security analysis for npm packages — detects obfuscated lifecycle scripts, known vulnerabilities, and malicious patterns **before** they run. Drop-in replacement for `npm install` and `npm ci`.
 
 **Zero dependencies.** Pure Node.js built-ins only.
 
@@ -246,6 +246,52 @@ npa alias --uninstall
 | `skipPackages`    | `[]`                         | Specific package names to skip          |
 | `silent`          | `false`                      | Suppress output when no issues found    |
 | `scanSelf`        | `true`                       | Also scan the current project's own `package.json` lifecycle scripts |
+| `maxTarballSize`  | `50MB`                       | Max unpacked tarball size (zip bomb protection) |
+| `checkVulnerabilities` | `true`                  | Check packages against known vulnerability databases |
+| `deepResolve`     | `false`                      | Recursively resolve full transitive dependency tree |
+
+---
+
+### Vulnerability Scanning (CVE)
+
+np-audit checks every scanned package against known vulnerability databases. This runs alongside the obfuscation detection and flags packages with known CVEs.
+
+**Default: OSV.dev (no setup required)**
+
+Works out of the box — queries the free [OSV.dev](https://osv.dev/) API for known vulnerabilities and malicious package advisories.
+
+**Optional: Snyk API (richer data)**
+
+For more detailed vulnerability information, configure a Snyk API token:
+
+```bash
+# Option 1: Environment variable
+export SNYK_API_TOKEN=your-token-here
+
+# Option 2: Snyk CLI config (if you have Snyk CLI installed)
+snyk auth
+```
+
+np-audit checks for the token in this order:
+1. `SNYK_API_TOKEN` environment variable
+2. `SNYK_TOKEN` environment variable
+3. `~/.config/configstore/snyk.json` (created by `snyk auth`)
+
+**Scoring:**
+| Severity | Score | Verdict |
+| -------- | ----- | ------- |
+| Malicious package | 80 | DANGER |
+| 10+ vulnerabilities | 6 | WARN |
+| 5-9 vulnerabilities | 5 | WARN |
+| 1-4 vulnerabilities | 4 | WARN |
+
+Non-malicious CVEs produce warnings but never block installation. Only confirmed malicious packages trigger DANGER.
+
+**Disable vulnerability checks:**
+
+```bash
+npa config set checkVulnerabilities false
+```
 
 ---
 
@@ -273,16 +319,28 @@ npa alias --uninstall
 
 ---
 
-## Development
+## Marshallers
 
-```bash
-git clone https://github.com/KoblerS/np-audit.git
-cd np-audit
-npm test          # run all unit + E2E tests
-npm link          # install npa globally from source
-```
+Detection is split into modular marshallers — each one detects a single attack signal:
 
-No build step, no transpilation — plain Node.js ≥ 18.
+| Marshaller | What it detects | Score |
+| ---------- | --------------- | ----- |
+| `eval/dynamic-exec` | `eval()`, `new Function()`, indirect eval, `vm.*`, `setTimeout` with string | 8 |
+| `obfuscator.io` | `_0x` variable naming patterns (obfuscator.io output) | 9–80 |
+| `high-entropy-string` | Long strings or concatenation chains with high Shannon entropy | 6 |
+| `hex-escape-density` | Dense `\xNN` and `\uXXXX` escape sequences | 5–50 |
+| `fromCharCode` | `String.fromCharCode` with many args, large decimal char-code arrays | 7 |
+| `encoded-decode` | Base64/hex decode (`atob`, `Buffer.from`) optionally combined with `eval` | 3–8 |
+| `child-process` | `require('child_process')`, `exec`, `spawn`, `fork`, worker_threads | 5 |
+| `hex-array` | Large numbers of `0x` hex literal values | 7–60 |
+| `process-env` | `process.env` access (credential exfiltration signal) | 3 |
+| `network-call` | `require('https')`, `fetch()`, `dns`, `net`, `tls` | 4 |
+| `filesystem-manipulation` | `fs.writeFile`, `chmod`, `symlink` (backdoor persistence) | 3–4 |
+| `known-vulnerability` | Known CVEs via Snyk API or OSV.dev | 4–6 (WARN), 80 (malicious) |
+
+Scores scale with severity — higher counts of obfuscation indicators produce higher scores. The final verdict is based on the highest individual score across all marshallers.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the marshaller architecture and how to write custom ones.
 
 ---
 

@@ -17,6 +17,8 @@ const DEFAULT_CONFIG = Object.freeze({
   silent:          false,
   scanSelf:        true,
   maxTarballSize:  '50MB', // Max unpacked tarball size (e.g. '5MB', '1GB', or bytes as number)
+  checkVulnerabilities: true,
+  deepResolve: false,
 });
 
 const VALID_KEYS = new Set(Object.keys(DEFAULT_CONFIG));

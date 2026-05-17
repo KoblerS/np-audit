@@ -9,10 +9,10 @@ const MAX_REDIRECTS = 5;
 const DEFAULT_TIMEOUT = 30000;
 
 /**
- * Perform an HTTP/HTTPS GET and collect the response body as a Buffer.
+ * Perform an HTTP/HTTPS request and collect the response body as a Buffer.
  * Follows redirects up to MAX_REDIRECTS.
  * @param {string} rawUrl
- * @param {object} opts  { timeout?, headers? }
+ * @param {object} opts  { timeout?, headers?, method?, body? }
  * @returns {Promise<Buffer>}
  */
 function fetch(rawUrl, opts = {}) {
@@ -28,7 +28,7 @@ function fetch(rawUrl, opts = {}) {
         hostname: parsed.hostname,
         port:     parsed.port || (isHttps ? 443 : 80),
         path:     parsed.pathname + parsed.search,
-        method:   'GET',
+        method:   opts.method || 'GET',
         headers:  Object.assign({
           'User-Agent': 'npa/1.0.0 (npm-auditor)',
           'Accept':     '*/*',
@@ -61,6 +61,7 @@ function fetch(rawUrl, opts = {}) {
       });
 
       req.on('error', reject);
+      if (opts.body) req.write(opts.body);
       req.end();
     }
 
@@ -87,7 +88,7 @@ function fetchTarball(tarballUrl, opts = {}) {
 async function fetchJSON(jsonUrl, opts = {}) {
   const buf = await fetch(jsonUrl, {
     ...opts,
-    headers: { 'Accept': 'application/json' },
+    headers: { 'Accept': 'application/json', ...opts.headers },
   });
   return JSON.parse(buf.toString('utf8'));
 }

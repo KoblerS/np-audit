@@ -10,7 +10,7 @@ module.exports = {
 
   help() {
     return `
-  npa scan — Scan dependencies for obfuscated install scripts
+  npa scan — Scan dependencies for security issues
 
   Usage:
     npa scan [package] [options]
@@ -31,7 +31,10 @@ module.exports = {
 
   async run({ args, flags, config, cwd }) {
     const packages = args.filter(a => !a.startsWith('-'));
+    const spinner = !flags.json && !config.silent ? output.createSpinner('Auditing packages...') : null;
+    if (spinner) spinner.start();
     const results = await scan({ cwd, config, noDev: flags.noDev, verbose: flags.verbose, packages: packages.length > 0 ? packages : null });
+    if (spinner) spinner.stop();
     const hasIssues = results.some(r => r.verdict !== 'OK');
     const silent = config.silent && !hasIssues;
 
@@ -54,7 +57,7 @@ module.exports = {
 function printResults(results, silent = false) {
   if (silent) return;
   if (results.length === 0) {
-    output.success('No packages with install scripts found.');
+    output.success('No issues found.');
     return;
   }
   for (const r of results) {
