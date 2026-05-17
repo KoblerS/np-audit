@@ -13,36 +13,15 @@ Static security analysis for npm packages — detects obfuscated lifecycle scrip
 
 **Zero dependencies.** Pure Node.js built-ins only.
 
----
-
-## Install
+```bash
+npx np-audit scan express
+```
 
 ```bash
 npm install -g np-audit
-```
-
-Or use directly:
-
-```bash
-npx np-audit scan
-```
-
----
-
-## Quick Start
-
-```bash
-# Scan all dependencies in your project
-npa scan
-
-# Scan a specific package before installing
-npa scan express@4.18.2
-
-# Audit then install
-npa install
-
-# Use as npm drop-in (scans install/ci, forwards everything else)
-alias npm='npa'
+npa scan                     # scan all deps
+npa install                  # audit then install
+alias npm='npa'              # use as drop-in replacement
 ```
 
 ---
