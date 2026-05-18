@@ -120,4 +120,26 @@ for (const m of marshallers) {
   assert.ok(m.check('fs.symlinkSync("a", "b")'), 'fs: symlink detected');
 }
 
+// runtime-download
+{
+  const m = marshallers.find(m => m.name === 'runtime-download');
+  assert.ok(m, 'runtime-download marshaller exists');
+  assert.strictEqual(m.check('console.log("hello")'), null, 'runtime: clean = null');
+  const bunDownload = `
+    const BUN_VERSION = "1.3.13";
+    const url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-x64.zip";
+    execFileSync(binPath, [script]);
+  `;
+  const r = m.check(bunDownload);
+  assert.ok(r && r.score === 50, `runtime: bun download+exec = score 50 (got ${r && r.score})`);
+
+  const denoRef = 'const url = "https://deno.land/install.sh"; execFileSync(denoPath, args);';
+  const r2 = m.check(denoRef);
+  assert.ok(r2 && r2.score >= 9, 'runtime: deno reference detected');
+
+  const justDownload = 'downloadToFile("https://example.com/bin.zip", dest); execFileSync(bin, args);';
+  const r3 = m.check(justDownload);
+  assert.ok(r3 && r3.score >= 30, 'runtime: generic download+exec detected');
+}
+
 console.log('  marshallers.test.js: all tests passed');

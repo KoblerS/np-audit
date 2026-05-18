@@ -344,20 +344,6 @@ function checkFilesystemManipulation(code) {
 
 // ─── Main detection function ─────────────────────────────────────────────────
 
-const CHECKS = [
-  checkEval,
-  checkObfuscatorIo,
-  checkHighEntropy,
-  checkHexEscapes,
-  checkFromCharCode,
-  checkBase64Exec,
-  checkChildProcess,
-  checkHexArray,
-  checkProcessEnv,
-  checkNetworkCalls,
-  checkFilesystemManipulation,
-];
-
 /**
  * Run all checks against a code string.
  * For large files, uses a sliding window (50% overlap) so payloads cannot
@@ -389,8 +375,12 @@ function detectObfuscation(code, config = { blockScore: 50, warnScore: 20 }) {
 
   const allFindings = new Map(); // Dedupe by name, keep highest score
 
+  // Combine inline checks with marshaller registry
+  const { getStaticMarshallers } = require('../marshallers');
+  const allChecks = getStaticMarshallers().map(m => m.check.bind(m));
+
   for (const chunk of chunks) {
-    for (const check of CHECKS) {
+    for (const check of allChecks) {
       const result = check(chunk);
       if (result) {
         const existing = allFindings.get(result.name);
