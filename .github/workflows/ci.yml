@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   test:
@@ -30,6 +31,24 @@ jobs:
       - name: Run tests
         run: node test/index.js
 
+      - name: Run tests with coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
+        run: npx c8@11.0.0 --reporter=lcov --reporter=text-summary node test/index.js | tee coverage-summary.txt
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
+        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.4.3
+        with:
+          files: coverage/lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload coverage summary
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-summary
+          path: coverage-summary.txt
+
       - name: Install package globally
         run: npm install -g .
 
@@ -45,3 +64,73 @@ jobs:
           cd test-project
           npm init -y
           npa scan
+
+  report:
+    name: PR Report
+    needs: test
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download coverage summary
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: coverage-summary
+        continue-on-error: true
+
+      - name: Post PR comment
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const fs = require('fs');
+            let coverage = 'Coverage report not available';
+            try {
+              const raw = fs.readFileSync('coverage-summary.txt', 'utf8');
+              const lines = raw.split('\n').filter(l => l.includes('%') || l.includes('passed') || l.includes('failed'));
+              coverage = lines.join('\n');
+            } catch {}
+
+            const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+
+            const testJobs = jobs.jobs.filter(j => j.name.startsWith('Test'));
+            const passed = testJobs.filter(j => j.conclusion === 'success').length;
+            const failed = testJobs.filter(j => j.conclusion === 'failure').length;
+            const total = testJobs.length;
+
+            const status = failed > 0 ? '❌' : '✅';
+            const body = [
+              `## ${status} CI Results`,
+              '',
+              `**Tests:** ${passed}/${total} matrix jobs passed${failed > 0 ? ` (${failed} failed)` : ''}`,
+              '',
+              '**Coverage:**',
+              '```',
+              coverage,
+              '```',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes('CI Results') && c.user.login === 'github-actions[bot]');
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
