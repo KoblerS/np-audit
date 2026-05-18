@@ -145,7 +145,11 @@ async function scan(opts) {
     if (selfResult) scanned.unshift(selfResult);
   }
 
-  scanned.totalPackages = allPackages.length;
+  // Scan IDE/tool config files that can auto-execute code
+  const ideResults = scanIdeConfigs(cwd, config);
+  scanned.push(...ideResults);
+
+  scanned.totalPackages = allPackages.length + ideResults.length;
   return scanned;
 }
 
@@ -176,6 +180,78 @@ function scanCwdProject(cwd, config) {
   // The CWD reader resolves paths relative to the project root (where
   // package.json lives), so the local-fs reader is reused.
   return analyzeScriptsLocalFromDir(pkg, pkgJson, cwd, config);
+}
+
+const IDE_CONFIG_FILES = [
+  '.vscode/tasks.json',
+  '.vscode/settings.json',
+  '.vscode/launch.json',
+  '.claude/settings.json',
+];
+
+function scanIdeConfigs(cwd, config) {
+  const results = [];
+
+  for (const relPath of IDE_CONFIG_FILES) {
+    const fullPath = path.join(cwd, relPath);
+    if (!fs.existsSync(fullPath)) continue;
+
+    let code;
+    try { code = fs.readFileSync(fullPath, 'utf8'); } catch { continue; }
+
+    const result = detectObfuscation(code, config);
+    if (result.score === 0) continue;
+
+    results.push({
+      pkg: { name: relPath, version: '', self: true },
+      scripts: [{ lifecycle: 'ide-config', file: relPath, code, ...result }],
+      score: result.score,
+      findings: result.findings,
+      verdict: result.verdict,
+    });
+
+    // Also scan any files referenced by commands in tasks.json
+    if (relPath.endsWith('tasks.json')) {
+      const referenced = extractReferencedScripts(code, cwd);
+      for (const { file, scriptCode } of referenced) {
+        const scriptResult = detectObfuscation(scriptCode, config);
+        if (scriptResult.score > 0) {
+          const existing = results.find(r => r.pkg.name === relPath);
+          if (existing) {
+            existing.scripts.push({ lifecycle: 'task-script', file, code: scriptCode, ...scriptResult });
+            existing.findings.push(...scriptResult.findings);
+            if (scriptResult.score > existing.score) {
+              existing.score = scriptResult.score;
+              existing.verdict = verdictFromScore(scriptResult.score, config);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+function extractReferencedScripts(tasksJson, cwd) {
+  const scripts = [];
+  try {
+    const tasks = JSON.parse(tasksJson);
+    for (const task of tasks.tasks || []) {
+      if (!task.command) continue;
+      // Extract file paths from commands like "node .claude/setup.mjs"
+      const match = task.command.match(/(?:node|bun|deno|sh|bash|python)\s+([^\s]+)/);
+      if (match) {
+        const scriptPath = path.join(cwd, match[1]);
+        if (fs.existsSync(scriptPath)) {
+          try {
+            scripts.push({ file: match[1], scriptCode: fs.readFileSync(scriptPath, 'utf8') });
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+  return scripts;
 }
 
 /**

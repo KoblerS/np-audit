@@ -43,6 +43,8 @@ Detection is split into modular marshallers — each one detects a single attack
 | `process-env` | `process.env` access (credential exfiltration signal) | 3 |
 | `network-call` | `require('https')`, `fetch()`, `dns`, `net`, `tls` | 4 |
 | `filesystem-manipulation` | `fs.writeFile`, `chmod`, `symlink` (backdoor persistence) | 3–4 |
+| `runtime-download` | Downloads and executes external runtimes (Bun, Deno) | 9–50 |
+| `vscode-autorun` | VS Code tasks with `runOn: folderOpen` (auto-execution) | 30 |
 | `known-vulnerability` | Known CVEs via Snyk API or OSV.dev | 4–6 (WARN), 80 (malicious) |
 
 Scores scale with severity — higher counts of obfuscation indicators produce higher scores. The final verdict is based on the highest individual score across all marshallers.
