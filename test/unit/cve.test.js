@@ -14,7 +14,7 @@ assert.strictEqual(typeof cve.check, 'function', 'has check method from base');
 
 // ─── Marshaller registry tests ──────────────────────────────────────────────
 
-assert.strictEqual(getStaticMarshallers().length, 12, '12 static marshallers loaded');
+assert.strictEqual(getStaticMarshallers().length, 13, '13 static marshallers loaded');
 assert.strictEqual(getPackageMarshallers().length, 1, '1 package marshaller loaded');
 assert.ok(getStaticMarshallers().every(m => m instanceof Marshaller), 'all static marshallers are Marshaller instances');
 assert.ok(getStaticMarshallers().every(m => typeof m.check === 'function'), 'all static marshallers have check()');

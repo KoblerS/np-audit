@@ -9,7 +9,7 @@ const marshallers = getStaticMarshallers();
 // All marshallers are instances of Marshaller
 assert.ok(marshallers.every(m => m instanceof Marshaller), 'all are Marshaller instances');
 assert.ok(marshallers.every(m => typeof m.check === 'function'), 'all have check()');
-assert.strictEqual(marshallers.length, 12, '12 static marshallers loaded');
+assert.strictEqual(marshallers.length, 13, '13 static marshallers loaded');
 
 // All return null for clean code
 for (const m of marshallers) {
@@ -30,5 +30,6 @@ require('./processEnv.test');
 require('./networkCalls.test');
 require('./filesystemManipulation.test');
 require('./runtimeDownload.test');
+require('./vscodeTasks.test');
 
 console.log('  marshallers/: all tests passed');
