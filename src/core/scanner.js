@@ -652,6 +652,17 @@ function extractSemver(range) {
 }
 
 /**
+ * Resolve an extracted (possibly partial) version to a full version using registry metadata.
+ * Falls back to dist-tags.latest when the partial version doesn't match any published version.
+ */
+function resolveVersion(extracted, meta) {
+  if (meta.versions && meta.versions[extracted]) return extracted;
+  const latest = meta['dist-tags'] && meta['dist-tags'].latest;
+  if (latest && meta.versions && meta.versions[latest]) return latest;
+  return null;
+}
+
+/**
  * Resolve dependencies from package.json when no lockfile exists.
  * @param {string} cwd
  * @param {object} config
@@ -687,12 +698,13 @@ async function resolveFromPackageJson(cwd, config, noDev) {
     try {
       const encodedName = name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : encodeURIComponent(name);
       const meta = await fetchJSON(`${config.registry}/${encodedName}`, { timeout: config.timeout });
-      const versionData = meta.versions && meta.versions[version];
-      if (!versionData) continue;
+      const resolvedVersion = resolveVersion(version, meta);
+      if (!resolvedVersion) continue;
+      const versionData = meta.versions[resolvedVersion];
 
       packages.push({
         name,
-        version,
+        version: resolvedVersion,
         resolved: versionData.dist && versionData.dist.tarball,
         integrity: versionData.dist && versionData.dist.integrity || '',
         hasInstallScript: !!(versionData.scripts &&
@@ -752,22 +764,25 @@ async function resolveSinglePackage(packageSpec, config) {
     for (const [depName] of queue) seen.add(depName);
 
     const resolutions = await mapWithConcurrency(queue, config.parallelFetches, async ([depName, range]) => {
-      const exactVersion = extractSemver(range);
-      if (!exactVersion) return null;
+      const extractedVersion = extractSemver(range);
+      if (!extractedVersion) return null;
 
       let depScripts = false;
       let depDeps = null;
-      let depTarball = buildTarballUrl(depName, exactVersion, config.registry);
+      let depTarball = buildTarballUrl(depName, extractedVersion, config.registry);
       let depIntegrity = '';
+      let resolvedDepVersion = extractedVersion;
 
       try {
         const encodedDep = depName.startsWith('@') ? `@${encodeURIComponent(depName.slice(1))}` : encodeURIComponent(depName);
         const depMeta = await fetchJSON(`${config.registry}/${encodedDep}`, { timeout: config.timeout });
-        const depData = depMeta.versions && depMeta.versions[exactVersion];
+        const fullVersion = resolveVersion(extractedVersion, depMeta);
+        const depData = fullVersion && depMeta.versions && depMeta.versions[fullVersion];
         if (depData) {
+          resolvedDepVersion = fullVersion;
           depScripts = !!(depData.scripts &&
             (depData.scripts.preinstall || depData.scripts.postinstall || depData.scripts.install));
-          depTarball = depData.dist && depData.dist.tarball || depTarball;
+          depTarball = depData.dist && depData.dist.tarball || buildTarballUrl(depName, fullVersion, config.registry);
           depIntegrity = depData.dist && depData.dist.integrity || '';
           depDeps = depData.dependencies;
         }
@@ -778,7 +793,7 @@ async function resolveSinglePackage(packageSpec, config) {
       return {
         pkg: {
           name:             depName,
-          version:          exactVersion,
+          version:          resolvedDepVersion,
           resolved:         depTarball,
           integrity:        depIntegrity,
           hasInstallScript: depScripts,
@@ -837,4 +852,4 @@ async function mapWithConcurrency(items, limit, fn) {
   return results;
 }
 
-module.exports = { scan, hasInstallScripts, extractScriptFileFromCommand, verdictFromScore };
+module.exports = { scan, hasInstallScripts, extractScriptFileFromCommand, verdictFromScore, resolveVersion, extractSemver };

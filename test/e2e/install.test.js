@@ -204,6 +204,36 @@ function buildV1Lockfile(pkgs) {
   console.log('  Test 9 passed: multiple packages, one blocked');
 }
 
+// ─── Test 10: npa install (non-JSON) with blocked package → exit 1, prints summary ─
+{
+  const { dir, cleanup } = withTmpDirSync();
+  const obfuscatedScript = "var _0xabc = _0xdef(_0x123);\neval(_0xabc);";
+  createFakeModule(dir, 'bad-install-pkg', { name: 'bad-install-pkg', version: '1.0.0', scripts: { postinstall: 'node i.js' } }, { 'i.js': obfuscatedScript });
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify(
+    buildV1Lockfile([{ name: 'bad-install-pkg', version: '1.0.0' }])
+  ));
+  const result = runCLI(['install'], dir);
+  cleanup();
+  assert.strictEqual(result.status, 1, `Test 10: install blocked exits 1. stderr: ${result.stderr}`);
+  assert.ok(result.stdout.includes('blocked'), 'Test 10: summary line shows blocked count');
+  console.log('  Test 10 passed: install command shows summary with timing');
+}
+
+// ─── Test 11: npa ci (non-JSON) with blocked package → exit 1, prints summary ──
+{
+  const { dir, cleanup } = withTmpDirSync();
+  const obfuscatedScript = "var _0xabc = _0xdef(_0x123);\neval(_0xabc);";
+  createFakeModule(dir, 'bad-ci-pkg', { name: 'bad-ci-pkg', version: '1.0.0', scripts: { postinstall: 'node c.js' } }, { 'c.js': obfuscatedScript });
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify(
+    buildV1Lockfile([{ name: 'bad-ci-pkg', version: '1.0.0' }])
+  ));
+  const result = runCLI(['ci'], dir);
+  cleanup();
+  assert.strictEqual(result.status, 1, `Test 11: ci blocked exits 1. stderr: ${result.stderr}`);
+  assert.ok(result.stdout.includes('blocked'), 'Test 11: summary line shows blocked count');
+  console.log('  Test 11 passed: ci command shows summary with timing');
+}
+
 console.log('  install.test.js: all tests passed');
 
 module.exports = Promise.resolve();

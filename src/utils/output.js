@@ -90,15 +90,16 @@ function printPackageResult(pkg, result) {
   }
 }
 
-function printSummary(results) {
+function printSummary(results, elapsedMs) {
   const blocked = results.filter(r => r.verdict === 'BLOCK').length;
   const warned  = results.filter(r => r.verdict === 'WARN').length;
   const total   = results.totalPackages || results.length;
   const ok      = total - blocked - warned;
+  const timing  = elapsedMs != null ? dim(`  (${elapsedMs}ms)`) : '';
 
   log('');
   log(dim('─'.repeat(60)));
-  log(`  ${green(String(ok))} clean   ${yellow(String(warned))} warnings   ${red(String(blocked))} blocked`);
+  log(`  ${green(String(ok))} clean   ${yellow(String(warned))} warnings   ${red(String(blocked))} blocked${timing}`);
   log('');
 }
 

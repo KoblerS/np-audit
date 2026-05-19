@@ -16,6 +16,7 @@ const UNIT_TESTS = [
   'unit/requireWalker.test.js',
   'unit/updateChecker.test.js',
   'unit/cve.test.js',
+  'unit/resolveVersion.test.js',
   'unit/marshallers/index.test.js',
 ];
 
@@ -26,6 +27,7 @@ const E2E_TESTS = [
   'e2e/command-coverage.test.js',
   'e2e/require-following.test.js',
   'e2e/scan-self.test.js',
+  'e2e/registry.test.js',
 ];
 
 let failed = 0;

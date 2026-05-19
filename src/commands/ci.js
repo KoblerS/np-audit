@@ -32,7 +32,9 @@ module.exports = {
   async run({ flags, config, cwd }) {
     const spinner = !flags.json && !config.silent ? output.createSpinner('Auditing packages...') : null;
     if (spinner) spinner.start();
+    const t0 = Date.now();
     const results = await scan({ cwd, config, noDev: flags.noDev, verbose: flags.verbose });
+    const elapsedMs = Date.now() - t0;
     if (spinner) spinner.stop();
     const hasIssues = results.some(r => r.verdict !== 'OK');
     const silent = config.silent && !hasIssues;
@@ -43,6 +45,7 @@ module.exports = {
       process.stdout.write(JSON.stringify(toJsonReport(results), null, 2) + '\n');
     } else {
       printResults(results, silent);
+      if (!silent) output.printSummary(results, elapsedMs);
     }
 
     const blocked = results.filter(r => r.verdict === 'BLOCK');
