@@ -11,7 +11,7 @@
 
 Static security analysis for npm packages — detects obfuscated lifecycle scripts, known vulnerabilities, and malicious patterns **before** they run. Drop-in replacement for `npm install` and `npm ci`.
 
-**Zero dependencies.** Pure Node.js built-ins only.
+**Zero dependencies.** Pure Node.js built-ins only. **< 100 kB** on the wire.
 
 ```bash
 npx np-audit scan express

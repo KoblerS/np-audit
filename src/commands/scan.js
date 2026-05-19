@@ -33,7 +33,9 @@ module.exports = {
     const packages = args.filter(a => !a.startsWith('-'));
     const spinner = !flags.json && !config.silent ? output.createSpinner('Auditing packages...') : null;
     if (spinner) spinner.start();
+    const t0 = Date.now();
     const results = await scan({ cwd, config, noDev: flags.noDev, verbose: flags.verbose, packages: packages.length > 0 ? packages : null });
+    const elapsedMs = Date.now() - t0;
     if (spinner) spinner.stop();
     const hasIssues = results.some(r => r.verdict !== 'OK');
     const silent = config.silent && !hasIssues;
@@ -47,7 +49,7 @@ module.exports = {
     }
 
     printResults(results, silent);
-    if (!silent) output.printSummary(results);
+    if (!silent) output.printSummary(results, elapsedMs);
 
     const hasBlock = results.some(r => r.verdict === 'BLOCK');
     process.exit(hasBlock ? 1 : 0);
