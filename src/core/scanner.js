@@ -106,7 +106,7 @@ async function scan(opts) {
 
   // Run package-level marshallers (CVE checks) on ALL packages, not just those with scripts
   if (config.checkVulnerabilities) {
-    const packageMarshallers = getPackageMarshallers();
+    const packageMarshallers = getPackageMarshallers(config.disabledMarshallers || []);
     const cveResults = await mapWithConcurrency(allPackages, config.parallelFetches, async (pkg) => {
       for (const marshaller of packageMarshallers) {
         const finding = await marshaller.checkPackage(pkg, config);

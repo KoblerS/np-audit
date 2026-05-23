@@ -83,4 +83,28 @@ assert.throws(
   'setGlobalConfig throws on unknown key'
 );
 
+// ─── disabledMarshallers defaults to empty array ─────────────────────────────
+withTmpDir(dir => {
+  const config = loadConfig(dir);
+  assert.deepStrictEqual(config.disabledMarshallers, [], 'default disabledMarshallers is empty array');
+});
+
+// ─── disabledMarshallers coerces string to array ─────────────────────────────
+withTmpDir(dir => {
+  fs.writeFileSync(path.join(dir, '.npmauditor.json'), JSON.stringify({
+    disabledMarshallers: 'process-env',
+  }));
+  const config = loadConfig(dir);
+  assert.deepStrictEqual(config.disabledMarshallers, ['process-env'], 'string coerced to array');
+});
+
+// ─── disabledMarshallers accepts array ───────────────────────────────────────
+withTmpDir(dir => {
+  fs.writeFileSync(path.join(dir, '.npmauditor.json'), JSON.stringify({
+    disabledMarshallers: ['process-env', 'network-call'],
+  }));
+  const config = loadConfig(dir);
+  assert.deepStrictEqual(config.disabledMarshallers, ['process-env', 'network-call'], 'array preserved');
+});
+
 console.log('  config.test.js: all tests passed');
