@@ -17,6 +17,7 @@ const UNIT_TESTS = [
   'unit/updateChecker.test.js',
   'unit/cve.test.js',
   'unit/resolveVersion.test.js',
+  'unit/marshallers-index.test.js',
   'unit/marshallers/index.test.js',
 ];
 

@@ -159,6 +159,23 @@ npa config set skipScopes '["@types"]'      # Trust entire scopes
 | `maxTarballSize`  | `50MB`                       | Max unpacked tarball size (bomb protection) |
 | `checkVulnerabilities` | `true`                  | Check packages against CVE databases    |
 | `deepResolve`     | `false`                      | Resolve full transitive dependency tree |
+| `disabledMarshallers` | `[]`                    | Marshaller names to skip during scanning |
+
+### Disabling marshallers
+
+You can disable specific detection checks by adding their names to `disabledMarshallers`:
+
+```bash
+npa config set disabledMarshallers '["process-env", "network-call"]'
+```
+
+To see all available marshaller names and their current status:
+
+```bash
+npa config marshallers
+```
+
+This is useful when a marshaller produces false positives for your workflow. Disabled marshallers are skipped entirely during both static code analysis and package-level checks.
 
 ---
 

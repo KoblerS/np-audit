@@ -377,7 +377,7 @@ function detectObfuscation(code, config = { blockScore: 50, warnScore: 20 }) {
 
   // Combine inline checks with marshaller registry
   const { getStaticMarshallers } = require('../marshallers');
-  const allChecks = getStaticMarshallers().map(m => m.check.bind(m));
+  const allChecks = getStaticMarshallers(config.disabledMarshallers || []).map(m => m.check.bind(m));
 
   for (const chunk of chunks) {
     for (const check of allChecks) {
