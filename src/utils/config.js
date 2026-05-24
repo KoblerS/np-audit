@@ -72,7 +72,13 @@ function coerce(obj) {
     if (key === 'maxTarballSize') {
       result[key] = parseSize(val);
     } else if (Array.isArray(def)) {
-      result[key] = Array.isArray(val) ? val : [val];
+      if (Array.isArray(val)) {
+        result[key] = val;
+      } else if (typeof val === 'string' && val.startsWith('[')) {
+        try { result[key] = JSON.parse(val); } catch { result[key] = [val]; }
+      } else {
+        result[key] = [val];
+      }
     } else if (typeof def === 'number') {
       const n = Number(val);
       if (!isNaN(n)) result[key] = n;

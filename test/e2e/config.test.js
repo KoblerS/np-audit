@@ -88,4 +88,51 @@ withTmpDir(homeDir => {
   });
 });
 
+// ─── Test: config marshallers lists all marshallers ─────────────────────────
+withTmpDir(dir => {
+  const result = runCLI(['config', 'marshallers'], dir);
+  assert.strictEqual(result.status, 0, 'config marshallers exits 0');
+  assert.ok(result.stdout.includes('Available marshallers'), 'shows header');
+  assert.ok(result.stdout.includes('Static (code analysis):'), 'shows static section');
+  assert.ok(result.stdout.includes('Package-level:'), 'shows package section');
+  assert.ok(result.stdout.includes('eval/dynamic-exec'), 'lists eval marshaller');
+  assert.ok(result.stdout.includes('known-vulnerability'), 'lists CVE marshaller');
+  assert.ok(result.stdout.includes('process-env'), 'lists process-env marshaller');
+});
+
+// ─── Test: config marshallers shows disabled badge ──────────────────────────
+withTmpDir(homeDir => {
+  withTmpDir(projectDir => {
+    fs.writeFileSync(
+      path.join(projectDir, '.npmauditor.json'),
+      JSON.stringify({ disabledMarshallers: ['process-env', 'network-call'] })
+    );
+    const result = runCLI(['config', 'marshallers'], projectDir, { HOME: homeDir });
+    assert.strictEqual(result.status, 0, 'config marshallers exits 0 with disabled');
+    assert.ok(result.stdout.includes('[disabled]'), 'shows disabled badge');
+    assert.ok(result.stdout.includes('2 marshaller(s) currently disabled'), 'shows disabled count');
+  });
+});
+
+// ─── Test: config unknown subcommand exits non-zero ─────────────────────────
+withTmpDir(dir => {
+  const result = runCLI(['config', 'bogus'], dir);
+  assert.notStrictEqual(result.status, 0, 'unknown subcommand exits non-zero');
+  assert.ok(result.stderr.includes('Unknown config subcommand'), 'error message shown');
+  assert.ok(result.stderr.includes('marshallers'), 'error suggests marshallers subcommand');
+});
+
+// ─── Test: config set disabledMarshallers writes array ──────────────────────
+withTmpDir(homeDir => {
+  const result = runCLI(
+    ['config', 'set', 'disabledMarshallers', '["process-env", "network-call"]'],
+    homeDir,
+    { HOME: homeDir }
+  );
+  assert.strictEqual(result.status, 0, `config set disabledMarshallers exits 0. stderr: ${result.stderr}`);
+  const globalConfigPath = path.join(homeDir, '.npmauditor.json');
+  const written = JSON.parse(fs.readFileSync(globalConfigPath, 'utf8'));
+  assert.deepStrictEqual(written.disabledMarshallers, ['process-env', 'network-call'], 'array written');
+});
+
 console.log('  config.test.js (e2e): all tests passed');
