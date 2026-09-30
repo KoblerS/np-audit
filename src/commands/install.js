@@ -21,6 +21,7 @@ module.exports = {
     --json        Output scan results as JSON
     --no-dev      Skip devDependencies in scan
     --verbose     Show detailed findings
+    --skip        Skip auditing and run npm directly
     -h, --help    Show this help
 
   Examples:
@@ -30,7 +31,12 @@ module.exports = {
 `;
   },
 
-  async run({ args, flags, config, cwd }) {
+  async run({ args, rawArgs, flags, config, cwd }) {
+    if (flags.skip) {
+      output.warn('Audit skipped for this npm install command.');
+      process.exit(runNpm('install', rawArgs, cwd));
+    }
+
     const packages = args.filter(a => !a.startsWith('-'));
 
     const spinner = !flags.json && !config.silent ? output.createSpinner('Auditing packages...') : null;
@@ -66,7 +72,10 @@ module.exports = {
       process.exit(1);
     }
 
-    const npmArgs = packages.length > 0 ? packages : [];
+    // `args` intentionally contains just package names for scanning. Forward
+    // `rawArgs` to npm so npm options (including `-g` before `install`) are
+    // not lost when npa is acting as an npm proxy.
+    const npmArgs = rawArgs;
 
     if (flags.review) {
       const packagesWithScripts = results.filter(r => r.verdict !== 'OK' || r.scripts.length > 0);

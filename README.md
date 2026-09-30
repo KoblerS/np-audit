@@ -108,6 +108,7 @@ Any unrecognized command is forwarded to npm (e.g. `npa run test`, `npa publish`
 | `--json`    | —     | `install`, `ci`, `scan` | Machine-readable JSON output                     |
 | `--no-dev`  | —     | `install`, `ci`, `scan` | Skip devDependencies                             |
 | `--verbose` | —     | all                     | Show fetch progress and extra detail             |
+| `--skip`    | —     | `install`, `ci`         | Skip auditing for this command                   |
 | `--version` | `-v`  | —                       | Print version and exit                           |
 | `--help`    | `-h`  | —                       | Print help and exit                              |
 

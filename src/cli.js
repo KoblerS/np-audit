@@ -27,6 +27,7 @@ ${lines.join('\n')}
     --json        Machine-readable JSON output
     --no-dev      Skip devDependencies
     --verbose     Show extra detail
+    --skip        Skip auditing for this install or ci command
     --version     Print version
     --help, -h    Print this help (use <command> -h for command help)
 
@@ -49,23 +50,25 @@ function parseArgs(argv) {
     json:    false,
     noDev:   false,
     verbose: false,
+    skip:    false,
     version: false,
     help:    false,
   };
   const positionals = [];
-  const rawArgs = [];
+  const npaFlagIndexes = new Set();
 
-  for (const arg of args) {
+  for (const [index, arg] of args.entries()) {
     switch (arg) {
       case '--review':
-      case '-r':         flags.review  = true; break;
-      case '--json':     flags.json    = true; break;
-      case '--no-dev':   flags.noDev   = true; break;
-      case '--verbose':  flags.verbose = true; break;
+      case '-r':         flags.review  = true; npaFlagIndexes.add(index); break;
+      case '--json':     flags.json    = true; npaFlagIndexes.add(index); break;
+      case '--no-dev':   flags.noDev   = true; npaFlagIndexes.add(index); break;
+      case '--verbose':  flags.verbose = true; npaFlagIndexes.add(index); break;
+      case '--skip':     flags.skip    = true; npaFlagIndexes.add(index); break;
       case '--version':
-      case '-v':         flags.version = true; break;
+      case '-v':         flags.version = true; npaFlagIndexes.add(index); break;
       case '--help':
-      case '-h':         flags.help    = true; break;
+      case '-h':         flags.help    = true; npaFlagIndexes.add(index); break;
       default:
         if (!arg.startsWith('-')) positionals.push(arg);
     }
@@ -74,9 +77,10 @@ function parseArgs(argv) {
   const command = positionals[0] || null;
   const cmdArgs = positionals.slice(1);
   const commandIndex = args.indexOf(command);
-  if (commandIndex !== -1) {
-    rawArgs.push(...args.slice(commandIndex + 1));
-  }
+  // Preserve npm options on either side of a recognised command. This is
+  // important for npm's global options, e.g. `npm -g install foo` when npa
+  // is used as an npm proxy. Only npa's own flags are consumed here.
+  const rawArgs = args.filter((_, index) => index !== commandIndex && !npaFlagIndexes.has(index));
   return { command, args: cmdArgs, rawArgs, flags };
 }
 

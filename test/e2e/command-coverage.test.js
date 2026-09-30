@@ -56,6 +56,41 @@ function buildV1Lockfile(pkgs) {
   return { name: 'test-project', lockfileVersion: 1, dependencies: deps };
 }
 
+// ─── Test: npm proxy preserves global options ────────────────────────────────
+//
+// npm accepts global options before its command (`npm -g install`). When npa
+// is aliased as npm, it must retain that option after auditing. `--skip`
+// bypasses that audit once, and must not be forwarded to npm.
+if (process.platform !== 'win32') {
+  const { dir, cleanup } = withTmpDirSync();
+  const binDir = path.join(dir, 'bin');
+  const capturePath = path.join(dir, 'npm-args.txt');
+  fs.mkdirSync(binDir);
+  const fakeNpm = path.join(binDir, 'npm');
+  fs.writeFileSync(fakeNpm, '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$NPA_CAPTURE_PATH"\n');
+  fs.chmodSync(fakeNpm, 0o755);
+  fs.writeFileSync(
+    path.join(dir, 'package-lock.json'),
+    JSON.stringify(buildV1Lockfile([{ name: 'blocked-pkg', version: '1.0.0' }])),
+  );
+  createFakeModule(
+    dir, 'blocked-pkg',
+    { name: 'blocked-pkg', version: '1.0.0', scripts: { postinstall: 'node install.js' } },
+    { 'install.js': 'var _0xa=_0xb(_0xc),_0xd=_0xe(_0xf); eval(_0xa);' },
+  );
+
+  const result = runCLI(['-g', 'install', '--skip'], dir, {
+    PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+    NPA_CAPTURE_PATH: capturePath,
+  });
+  const forwarded = fs.readFileSync(capturePath, 'utf8').trim().split('\n');
+  cleanup();
+  assert.strictEqual(result.status, 0, `Skipped proxy install should succeed: ${result.stderr}`);
+  assert.deepStrictEqual(forwarded, ['install', '-g'], 'npm global option must be forwarded');
+  assert.match(result.stderr, /Audit skipped/, 'skip flag should bypass the audit');
+  console.log('  proxy test passed: global npm option forwarded and audit skipped');
+}
+
 // ─── Test A: chained command "node a.js && node b.js" — payload in b.js ──────
 //
 // The original parser would extract only the *first* node invocation. A
