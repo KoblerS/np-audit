@@ -21,6 +21,7 @@ module.exports = {
     --json        Output scan results as JSON
     --no-dev      Skip devDependencies in scan
     --verbose     Show detailed findings
+    --skip        Skip auditing and run npm directly
     -h, --help    Show this help
 
   Examples:
@@ -29,7 +30,12 @@ module.exports = {
 `;
   },
 
-  async run({ flags, config, cwd }) {
+  async run({ rawArgs, flags, config, cwd }) {
+    if (flags.skip) {
+      output.warn('Audit skipped for this npm ci command.');
+      process.exit(runNpm('ci', rawArgs, cwd));
+    }
+
     const spinner = !flags.json && !config.silent ? output.createSpinner('Auditing packages...') : null;
     if (spinner) spinner.start();
     const t0 = Date.now();
@@ -56,10 +62,10 @@ module.exports = {
     }
 
     if (flags.review) {
-      const exit = await runAware({ results, command: 'ci', npmArgs: [], cwd });
+      const exit = await runAware({ results, command: 'ci', npmArgs: rawArgs, cwd });
       process.exit(exit);
     } else {
-      const exit = runNpm('ci', [], cwd);
+      const exit = runNpm('ci', rawArgs, cwd);
       process.exit(exit);
     }
   },
